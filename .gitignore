@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Secrets — never commit real broker credentials
+backend/.env
+.env
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/

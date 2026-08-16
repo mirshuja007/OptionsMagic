@@ -8,8 +8,8 @@ from __future__ import annotations
 import uuid
 
 from app.broker.base import BasketOrderResult, BrokerAdapter, OrderFill, OrderStatus
+from app.data.feed import generate_option_chain
 from app.data.instruments import get_instrument
-from app.data.mock_feed import generate_option_chain
 from app.margin.span import estimate_margin
 from app.strategy.legs import Leg
 

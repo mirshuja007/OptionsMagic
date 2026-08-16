@@ -32,8 +32,10 @@ from app.api.schemas import (
 )
 from app.backtest.replay import replay_strategy
 from app.broker.paper import PaperBroker
+from app.data.feed import generate_option_chain, get_active_provider
 from app.data.instruments import ALL_INSTRUMENTS, get_instrument
-from app.data.mock_feed import generate_option_chain
+from app.data.kite_client import KiteAuthError
+from app.data.kite_feed import KiteFeedError
 from app.risk.automation import RiskRules
 from app.strategy.solver import StrategyConstraints, discover_strategies
 
@@ -68,11 +70,23 @@ def list_instruments():
     ]
 
 
+@router.get("/data-provider")
+def data_provider():
+    """Which market-data provider is currently active — useful for confirming
+    live (Kite) vs. simulated data before trusting anything the UI shows.
+    """
+    return {"provider": get_active_provider()}
+
+
 def _get_chain(symbol: str, expiry: date | None = None):
     try:
         return generate_option_chain(symbol.upper(), expiry=expiry)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KiteAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except KiteFeedError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/option-chain/{symbol}", response_model=OptionChainOut)

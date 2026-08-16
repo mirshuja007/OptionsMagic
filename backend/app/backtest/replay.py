@@ -8,16 +8,16 @@ would have fired.
 
 Limitation: intraday IV is held fixed at its entry value for each leg. A
 production build would replay a historical *IV surface* (from a tick/vendor
-feed) rather than assuming static vol; that feed is exactly the piece this
-mock layer stands in for.
+feed) rather than assuming static vol; that's independent of which
+underlying-price feed (simulated or live Kite history) is active.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
 
+from app.data.feed import generate_minute_series, get_risk_free_rate
 from app.data.instruments import Instrument
-from app.data.mock_feed import RISK_FREE_RATE, generate_minute_series
 from app.risk.automation import ActionType, RiskAction, RiskRules, evaluate
 from app.strategy.legs import Leg, PayoffExtrema, mark_to_market, payoff_extrema, portfolio_greeks
 
@@ -49,10 +49,10 @@ def replay_strategy(
     expiry_dt: datetime,
     session_date: date | None = None,
     risk_rules: RiskRules | None = None,
-    seed: int | None = None,
 ) -> ReplayResult:
-    minute_series = generate_minute_series(instrument.symbol, session_date=session_date, seed=seed)
+    minute_series = generate_minute_series(instrument.symbol, session_date=session_date)
     extrema: PayoffExtrema = payoff_extrema(legs, instrument.lot_size)
+    risk_free_rate = get_risk_free_rate()
 
     snapshots: list[MinuteSnapshot] = []
     peak_pnl = float("-inf")
@@ -62,8 +62,8 @@ def replay_strategy(
 
     for timestamp, spot in minute_series:
         t = max((expiry_dt - timestamp).total_seconds() / (365.0 * 24 * 3600), 1e-6)
-        pnl = mark_to_market(legs, spot, t, RISK_FREE_RATE, instrument.lot_size)
-        g = portfolio_greeks(legs, spot, t, RISK_FREE_RATE, instrument.lot_size)
+        pnl = mark_to_market(legs, spot, t, risk_free_rate, instrument.lot_size)
+        g = portfolio_greeks(legs, spot, t, risk_free_rate, instrument.lot_size)
 
         peak_pnl = max(peak_pnl, pnl)
         max_drawdown = min(max_drawdown, pnl - peak_pnl)
@@ -73,7 +73,7 @@ def replay_strategy(
         )
 
         if risk_rules is not None and triggered_action is None:
-            action = evaluate(legs, extrema, instrument, spot, t, RISK_FREE_RATE, risk_rules)
+            action = evaluate(legs, extrema, instrument, spot, t, risk_free_rate, risk_rules)
             if action.action_type != ActionType.NONE:
                 triggered_action = action
                 triggered_at = timestamp

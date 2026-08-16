@@ -1,0 +1,48 @@
+import pytest
+
+from app.data import feed
+from app.data.kite_client import KiteAuthError, reset_kite_client
+
+
+def test_default_provider_is_mock(monkeypatch):
+    monkeypatch.delenv("MARKET_DATA_PROVIDER", raising=False)
+    assert feed.get_active_provider() == "mock"
+
+
+def test_explicit_mock_provider(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    assert feed.get_active_provider() == "mock"
+
+
+def test_explicit_kite_provider(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    assert feed.get_active_provider() == "kite"
+
+
+def test_unknown_provider_raises(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "bloomberg")
+    with pytest.raises(RuntimeError):
+        feed.get_active_provider()
+
+
+def test_mock_provider_dispatches_to_mock_feed(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    chain = feed.generate_option_chain("NIFTY")
+    assert chain.symbol == "NIFTY"
+    assert chain.risk_free_rate == feed.get_risk_free_rate()
+
+
+def test_kite_provider_dispatches_to_kite_feed_and_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.generate_option_chain("NIFTY")
+    reset_kite_client()
+
+
+def test_generate_minute_series_mock_provider(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    series = feed.generate_minute_series("NIFTY", minutes=10)
+    assert len(series) == 10

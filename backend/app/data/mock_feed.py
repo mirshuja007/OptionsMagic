@@ -8,46 +8,25 @@ out for a real feed adapter behind the same function signatures to go live.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import numpy as np
 
-from app.core.black_scholes import Greeks, OptionType, greeks as bs_greeks, price as bs_price
-from app.data.instruments import Instrument, get_instrument
+from app.core.black_scholes import OptionType, greeks as bs_greeks, price as bs_price
+from app.data.instruments import get_instrument
+from app.data.models import ChainRow, LegQuote, OptionChain
+
+__all__ = [
+    "ChainRow",
+    "LegQuote",
+    "OptionChain",
+    "RISK_FREE_RATE",
+    "generate_minute_series",
+    "generate_option_chain",
+    "next_weekly_expiry",
+]
 
 RISK_FREE_RATE = 0.065  # approx. Indian T-bill / repo-anchored rate used across the platform
-
-
-@dataclass(frozen=True)
-class LegQuote:
-    option_type: OptionType
-    ltp: float
-    bid: float
-    ask: float
-    oi: int
-    oi_change: int
-    volume: int
-    iv: float
-    greeks: Greeks
-
-
-@dataclass(frozen=True)
-class ChainRow:
-    strike: float
-    call: LegQuote
-    put: LegQuote
-
-
-@dataclass(frozen=True)
-class OptionChain:
-    symbol: str
-    spot: float
-    expiry: date
-    timestamp: datetime
-    time_to_expiry_years: float
-    risk_free_rate: float
-    rows: list[ChainRow] = field(default_factory=list)
 
 
 def next_weekly_expiry(today: date | None = None) -> date:

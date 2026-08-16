@@ -10,7 +10,9 @@ client = TestClient(app)
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["data_provider"] == "mock"
 
 
 def test_list_instruments():
