@@ -72,12 +72,22 @@ different instrument, priced with a different convention:
 - **Margin**: commodities get a wider SPAN price-scan range (9% vs. 3.5%
   for indices) — crude oil in particular moves far more than an equity
   index (it went briefly negative in April 2020).
-- **Expiry cadence**: NSE index options are weekly; MCX commodity options
-  run monthly cycles that vary per commodity and shift for holidays.
-  `kite_feed.py` doesn't hardcode either — it always picks from whatever
-  expiries Kite's instrument dump actually lists. Only the *simulated*
-  mock feed needs an assumed default (Thursdays for index, +20 days for
-  commodities) since it has no real listing to read from.
+- **Expiry cadence**: NSE/BSE have changed weekly-expiry rules twice in the
+  last two years (SEBI consolidated each exchange to one weekly-expiry
+  index, then shifted the day). As of the last time this was verified
+  (rules effective Aug/Sep 2025): only **Nifty 50** (NSE, Tuesday) and
+  **Sensex** (BSE, Thursday) still get weekly options — BankNifty, FinNifty,
+  MidcpNifty, and single-stock F&O are monthly-only, last Tuesday of the
+  month. MCX commodity options run their own monthly cycles that vary per
+  commodity and aren't tied to a fixed weekday at all.
+  **`kite_feed.py` doesn't hardcode any of this** — it always picks from
+  whatever expiries Kite's instrument dump actually lists, so it's correct
+  regardless of the next rule change. Only the *simulated* mock feed needs
+  an assumed default, via `Instrument.expiry_cadence`/`expiry_weekday`
+  (`app/data/instruments.py`) — if NSE/BSE change the rules again, that's
+  the one place to update; re-verify against a current NSE/BSE circular
+  before trusting it, the same way `kite_feed.py`'s symbol mappings need
+  periodic verification.
 - **Contract specs**: `CRUDEOIL`/`GOLD` lot size, strike step, and base
   price in `app/data/instruments.py` are **illustrative placeholders** —
   MCX revises these periodically and lot size directly scales P&L/margin.
@@ -199,7 +209,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 91 tests
+pytest -q   # 106 tests
 ```
 
 ### Frontend

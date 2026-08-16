@@ -29,22 +29,48 @@ __all__ = [
 RISK_FREE_RATE = 0.065  # approx. Indian T-bill / repo-anchored rate used across the platform
 
 
-def next_weekly_expiry(today: date | None = None) -> date:
-    """Nearest Thursday on/after today (NSE's standard weekly expiry day)."""
+def next_weekly_expiry(today: date | None = None, weekday: int = 1) -> date:
+    """Nearest ``weekday`` (Monday=0 ... Sunday=6) on/after today. Defaults
+    to Tuesday (1), NSE's current weekly index-options expiry day — see
+    ``Instrument.expiry_weekday`` for the per-instrument, currently-correct
+    values (BSE's Sensex, for example, is Thursday, not Tuesday).
+    """
     today = today or date.today()
-    days_ahead = (3 - today.weekday()) % 7  # Thursday == 3
+    days_ahead = (weekday - today.weekday()) % 7
     days_ahead = days_ahead or 7
     return today + timedelta(days=days_ahead)
+
+
+def _last_weekday_of_month(year: int, month: int, weekday: int) -> date:
+    """The last occurrence of ``weekday`` in the given month — NSE's monthly
+    F&O expiry convention (e.g. last Tuesday) for contracts without weekly
+    expiry.
+    """
+    first_of_next_month = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    last_day_of_month = first_of_next_month - timedelta(days=1)
+    offset = (last_day_of_month.weekday() - weekday) % 7
+    return last_day_of_month - timedelta(days=offset)
+
+
+def _next_monthly_expiry(today: date, weekday: int) -> date:
+    candidate = _last_weekday_of_month(today.year, today.month, weekday)
+    if candidate < today:
+        year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+        candidate = _last_weekday_of_month(year, month, weekday)
+    return candidate
 
 
 def _default_expiry(instrument: Instrument, today: date) -> date:
     if instrument.is_commodity:
         # MCX commodity options run monthly cycles that vary per commodity
         # and shift for holidays — there's no simple formula like NSE's
-        # weekly Thursday. This is a rough illustrative stand-in only; real
-        # usage should get the actual listed expiry from kite_feed instead.
+        # weekly/monthly convention below. This is a rough illustrative
+        # stand-in only; real usage should get the actual listed expiry
+        # from kite_feed instead, which never hardcodes any of this.
         return today + timedelta(days=20)
-    return next_weekly_expiry(today)
+    if instrument.expiry_cadence == "monthly":
+        return _next_monthly_expiry(today, instrument.expiry_weekday)
+    return next_weekly_expiry(today, instrument.expiry_weekday)
 
 
 def _iv_smile(moneyness_log: float, base_iv: float) -> float:
