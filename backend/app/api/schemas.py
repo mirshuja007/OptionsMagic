@@ -76,6 +76,7 @@ class LegOut(BaseModel):
     quantity_lots: int
     entry_price: float
     iv: float
+    tradingsymbol: str = ""
 
 
 # --- Strategy discovery ---
@@ -190,3 +191,19 @@ class BasketOrderResultOut(BaseModel):
     basket_id: str
     fills: list[OrderFillOut]
     all_filled: bool
+
+
+# --- Live margin (read-only, Kite-only) ---
+
+
+class LiveMarginRequest(BaseModel):
+    symbol: str
+    legs: list[LegIn]
+    consider_positions: bool = False
+
+
+class LiveMarginResponse(BaseModel):
+    total_margin: float
+    span_margin: float | None
+    exposure_margin: float | None
+    option_premium: float | None

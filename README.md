@@ -46,7 +46,8 @@ frontend/  Next.js (App Router) + TypeScript + Tailwind — Research & Strategy 
   full option chain table with Greeks.
 - `/strategy` — Strategy Command Mode: constraint input form (PoP, yield, max
   profit/loss, margin cap) → calls the solver → ranked strategy cards with
-  legs, margin breakdown, payoff, PoP, EV, and Sharpe.
+  legs, margin breakdown, payoff, PoP, EV, Sharpe, and a "Verify Real Margin
+  (Kite)" button per card for a live, read-only broker margin check.
 
 ## Index & equity options vs. commodity options
 
@@ -100,9 +101,15 @@ What's still a documented stand-in even with `MARKET_DATA_PROVIDER=kite`:
   strategy against real prices without placing anything.
 - **`app/margin/span.py`** approximates NSE's SPAN methodology (price/vol
   scanning + exposure margin) rather than calling the exchange's proprietary
-  SPAN engine. Kite's own `order_margins()` API gives the broker's real
-  number and should be preferred once execution goes live — `kite_feed.py`
-  doesn't call it yet (see "Next steps" below).
+  SPAN engine — used for the solver's bulk sweep across hundreds of
+  candidates, where calling Kite's margin API per-candidate would blow
+  through its rate limits. **`app/margin/kite_margin.py`** gets the broker's
+  real, hedge-benefit-aware number via `basket_order_margins()` (read-only,
+  no order placed) for one candidate at a time — that's the "Verify Real
+  Margin" button in Strategy Command Mode / `POST /api/margin/live`. Its
+  response-shape parsing hasn't been exercised against a live account from
+  this environment (see the module docstring); sanity-check your first few
+  real calls.
 - **Smart OI** (`app/analytics/oi.py`) is a documented heuristic (OI-change
   weighted by proximity to ATM) standing in for NSE's separate FII/DII
   participant-wise open-interest bulletin.
@@ -171,7 +178,6 @@ changes later:
   (no atomic basket order in Kite's API — legs go in sequentially, so this
   needs its own legging-risk handling), plus a registered Algo ID (see
   above) since SEBI requires one for any API-placed order.
-- Real margin via `kite.order_margins()` in place of the SPAN approximation.
 - Persistence — positions/orders currently live in memory only
   (`PaperBroker`); nothing survives a process restart.
 - An always-on worker for the risk-automation loop (`app/risk/automation.py`)
@@ -193,7 +199,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 80 tests
+pytest -q   # 91 tests
 ```
 
 ### Frontend
@@ -223,6 +229,7 @@ Open `http://localhost:3000` (redirects to `/research`).
 | POST | `/api/execution/place-basket` | Paper-fill a multi-leg basket order |
 | POST | `/api/execution/square-off` | Paper-close a basket |
 | GET | `/api/execution/positions` / `/margin` | Paper broker state |
+| POST | `/api/margin/live` | Real, read-only Kite margin for a leg set (no order placed) |
 
 ## Example: discovering strategies
 

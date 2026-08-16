@@ -44,7 +44,7 @@ export default function StrategyPage() {
             </div>
           )}
           {response ? (
-            <StrategyResults results={response.results} />
+            <StrategyResults symbol={response.symbol} results={response.results} />
           ) : (
             !loading && <div className="card text-sm text-muted">Set your constraints and run the solver.</div>
           )}

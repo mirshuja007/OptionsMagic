@@ -27,6 +27,7 @@ class LegQuote:
     volume: int
     iv: float
     greeks: Greeks
+    tradingsymbol: str = ""  # only populated by kite_feed.py; empty for the simulated feed
 
 
 @dataclass(frozen=True)

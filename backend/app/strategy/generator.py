@@ -45,6 +45,7 @@ def _leg(row: ChainRow, option_type: OptionType, side: Side, qty: int, q: float)
         entry_price=_mid(quote.bid, quote.ask),
         iv=quote.iv,
         q=q,
+        tradingsymbol=quote.tradingsymbol,
     )
 
 

@@ -28,6 +28,7 @@ class Leg:
     entry_price: float  # premium per unit at entry (mid price from the chain)
     iv: float
     q: float = 0.0  # carry/dividend yield for repricing; commodity (futures-underlying) legs set q=r (Black-76)
+    tradingsymbol: str = ""  # Kite tradingsymbol; only set for legs sourced from the live Kite feed
 
     @property
     def sign(self) -> int:

@@ -21,6 +21,8 @@ from app.api.schemas import (
     GreeksOut,
     InstrumentOut,
     LegQuoteOut,
+    LiveMarginRequest,
+    LiveMarginResponse,
     MarginOut,
     MinuteSnapshotOut,
     OptionChainOut,
@@ -36,6 +38,7 @@ from app.data.feed import generate_option_chain, get_active_provider
 from app.data.instruments import ALL_INSTRUMENTS, get_instrument
 from app.data.kite_client import KiteAuthError
 from app.data.kite_feed import KiteFeedError
+from app.margin.kite_margin import KiteMarginError, fetch_basket_margin
 from app.risk.automation import RiskRules
 from app.strategy.solver import StrategyConstraints, discover_strategies
 
@@ -230,3 +233,27 @@ def positions():
 @router.get("/execution/margin")
 def margin_summary():
     return {"available_margin": _broker.get_available_margin()}
+
+
+@router.post("/margin/live", response_model=LiveMarginResponse)
+def live_margin(req: LiveMarginRequest):
+    """Real broker margin for a leg set, via Kite's basket_order_margins()
+    (read-only — no order is placed). Only works when MARKET_DATA_PROVIDER=kite
+    and every leg carries a Kite tradingsymbol (i.e. the chain it was priced
+    off of came from the live feed, not the mock one).
+    """
+    chain = _get_chain(req.symbol)
+    instrument = get_instrument(req.symbol)
+    legs = [leg_in_to_domain(leg_in, chain) for leg_in in req.legs]
+    try:
+        result = fetch_basket_margin(legs, instrument, consider_positions=req.consider_positions)
+    except KiteMarginError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KiteAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return LiveMarginResponse(
+        total_margin=result.total_margin,
+        span_margin=result.span_margin,
+        exposure_margin=result.exposure_margin,
+        option_premium=result.option_premium,
+    )

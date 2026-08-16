@@ -1,6 +1,8 @@
 import type {
   DiscoverResponse,
   Instrument,
+  LegOut,
+  LiveMarginResponse,
   MaxPainResponse,
   OiResponse,
   OptionChain,
@@ -43,4 +45,16 @@ export const api = {
   straddle: (symbol: string) => getJson<StraddleResponse>(`/analytics/straddle/${symbol}`),
   discoverStrategies: (symbol: string, constraints: StrategyConstraintsIn) =>
     postJson<DiscoverResponse>("/strategy/discover", { symbol, constraints }),
+  liveMargin: (symbol: string, legs: LegOut[]) =>
+    postJson<LiveMarginResponse>("/margin/live", {
+      symbol,
+      legs: legs.map((l) => ({
+        option_type: l.option_type,
+        strike: l.strike,
+        side: l.side,
+        quantity_lots: l.quantity_lots,
+        entry_price: l.entry_price,
+        iv: l.iv,
+      })),
+    }),
 };

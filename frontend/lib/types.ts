@@ -117,6 +117,14 @@ export interface LegOut {
   quantity_lots: number;
   entry_price: number;
   iv: number;
+  tradingsymbol?: string;
+}
+
+export interface LiveMarginResponse {
+  total_margin: number;
+  span_margin: number | null;
+  exposure_margin: number | null;
+  option_premium: number | null;
 }
 
 export interface StrategyConstraintsIn {

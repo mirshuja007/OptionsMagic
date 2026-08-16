@@ -3,6 +3,7 @@ import datetime
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.data.kite_client import reset_kite_client
 
 client = TestClient(app)
 
@@ -116,3 +117,61 @@ def test_backtest_and_execution_flow():
     r = client.get("/api/execution/margin")
     assert r.status_code == 200
     assert "available_margin" in r.json()
+
+
+def test_live_margin_requires_kite_auth(monkeypatch):
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+
+    legs = [{"option_type": "CE", "strike": 24800, "side": "short", "quantity_lots": 1}]
+    r = client.post("/api/margin/live", json={"symbol": "NIFTY", "legs": legs})
+    assert r.status_code == 401
+    reset_kite_client()
+
+
+def test_live_margin_rejects_legs_from_mock_feed(monkeypatch):
+    import app.margin.kite_margin as kite_margin_mod
+
+    class FakeKiteMargin:
+        def basket_order_margins(self, orders, consider_positions=True, mode=None):
+            return {"final": {"total": 1234.0}}
+
+    monkeypatch.setattr(kite_margin_mod, "get_kite_client", lambda: FakeKiteMargin())
+
+    legs = [{"option_type": "CE", "strike": 24800, "side": "short", "quantity_lots": 1}]
+    r = client.post("/api/margin/live", json={"symbol": "NIFTY", "legs": legs})
+    # NIFTY's chain here is the default mock feed, so legs never get a
+    # tradingsymbol -> the margin lookup should reject them with a clear 422.
+    assert r.status_code == 422
+    assert "tradingsymbol" in r.json()["detail"]
+
+
+def test_live_margin_happy_path_with_kite_feed(monkeypatch):
+    import app.data.kite_feed as kite_feed_mod
+    import app.margin.kite_margin as kite_margin_mod
+    from tests.test_kite_feed import FakeKite, _build_fake_chain_fixtures
+
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    spot = 24810.0
+    nfo_rows, quote_map, expiry = _build_fake_chain_fixtures(spot=spot)
+    fake_feed_client = FakeKite(nfo_rows, spot, quote_map)
+    monkeypatch.setattr(kite_feed_mod, "get_kite_client", lambda: fake_feed_client)
+    kite_feed_mod.clear_instrument_cache()
+
+    class FakeKiteMargin:
+        def basket_order_margins(self, orders, consider_positions=True, mode=None):
+            return {"final": {"total": 9047.38, "span": 8000.0, "exposure": 1047.38, "option_premium": 0.0}}
+
+    monkeypatch.setattr(kite_margin_mod, "get_kite_client", lambda: FakeKiteMargin())
+
+    chain_resp = client.get("/api/option-chain/NIFTY")
+    assert chain_resp.status_code == 200
+    strikes = sorted(row["strike"] for row in chain_resp.json()["rows"])
+
+    legs = [{"option_type": "CE", "strike": strikes[-2], "side": "short", "quantity_lots": 1}]
+    r = client.post("/api/margin/live", json={"symbol": "NIFTY", "legs": legs})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_margin"] == 9047.38
+    assert body["span_margin"] == 8000.0

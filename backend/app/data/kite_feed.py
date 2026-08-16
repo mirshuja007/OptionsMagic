@@ -174,7 +174,14 @@ def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> fl
 
 
 def _quote_to_leg(
-    quote: dict, spot: float, strike: float, t: float, r: float, option_type: OptionType, q: float = 0.0
+    quote: dict,
+    spot: float,
+    strike: float,
+    t: float,
+    r: float,
+    option_type: OptionType,
+    q: float = 0.0,
+    tradingsymbol: str = "",
 ) -> LegQuote:
     ltp = float(quote.get("last_price") or 0.0)
     depth = quote.get("depth") or {}
@@ -203,6 +210,7 @@ def _quote_to_leg(
         volume=int(quote.get("volume") or 0),
         iv=round(iv, 4),
         greeks=g,
+        tradingsymbol=tradingsymbol,
     )
 
 
@@ -227,11 +235,12 @@ def generate_option_chain(
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)
     q = RISK_FREE_RATE if instrument.pricing_carry_rate_equals_risk_free else 0.0
 
-    token_map: dict[str, tuple[float, str]] = {}
+    token_map: dict[str, tuple[float, str, str]] = {}
     for strike, legs in strike_map.items():
         for side in ("CE", "PE"):
-            key = _quote_key(instrument, legs[side]["tradingsymbol"])
-            token_map[key] = (strike, side)
+            tradingsymbol = legs[side]["tradingsymbol"]
+            key = _quote_key(instrument, tradingsymbol)
+            token_map[key] = (strike, side, tradingsymbol)
 
     try:
         quotes = kite.quote(list(token_map.keys()))
@@ -239,12 +248,14 @@ def generate_option_chain(
         raise KiteFeedError(f"Failed to fetch quotes for {instrument.symbol} chain: {exc}") from exc
 
     rows_by_strike: dict[float, dict[str, LegQuote]] = {}
-    for key, (strike, side) in token_map.items():
+    for key, (strike, side, tradingsymbol) in token_map.items():
         quote = quotes.get(key)
         if quote is None:
             continue
         option_type = OptionType.CALL if side == "CE" else OptionType.PUT
-        rows_by_strike.setdefault(strike, {})[side] = _quote_to_leg(quote, spot, strike, t, RISK_FREE_RATE, option_type, q)
+        rows_by_strike.setdefault(strike, {})[side] = _quote_to_leg(
+            quote, spot, strike, t, RISK_FREE_RATE, option_type, q, tradingsymbol
+        )
 
     rows = [
         ChainRow(strike=strike, call=legs["CE"], put=legs["PE"])
