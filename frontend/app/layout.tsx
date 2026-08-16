@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
+import DataProviderBadge from "@/components/DataProviderBadge";
 
 export const metadata: Metadata = {
   title: "Custom-Mojo | Options Strategy Suite",
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="flex items-center gap-2">
               <span className="text-lg font-semibold tracking-tight">Custom-Mojo</span>
               <span className="rounded bg-panel px-2 py-0.5 text-xs text-muted">Options Suite</span>
+              <DataProviderBadge />
             </div>
             <nav className="flex gap-1 rounded-lg border border-border bg-panel p-1 text-sm">
               <Link href="/research" className="rounded-md px-3 py-1.5 hover:bg-white/5">

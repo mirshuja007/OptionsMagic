@@ -57,4 +57,5 @@ export const api = {
         iv: l.iv,
       })),
     }),
+  dataProvider: () => getJson<{ provider: "mock" | "kite" }>("/data-provider"),
 };
