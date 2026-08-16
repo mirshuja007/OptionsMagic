@@ -37,6 +37,7 @@ export interface Instrument {
   symbol: string;
   display_name: string;
   is_index: boolean;
+  asset_class: "index" | "equity" | "commodity";
   lot_size: number;
   strike_step: number;
   exchange: string;

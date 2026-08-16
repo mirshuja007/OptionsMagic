@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from app.core.black_scholes import OptionType, greeks as bs_greeks, price as bs_price
-from app.data.instruments import get_instrument
+from app.data.instruments import Instrument, get_instrument
 from app.data.models import ChainRow, LegQuote, OptionChain
 
 __all__ = [
@@ -35,6 +35,16 @@ def next_weekly_expiry(today: date | None = None) -> date:
     days_ahead = (3 - today.weekday()) % 7  # Thursday == 3
     days_ahead = days_ahead or 7
     return today + timedelta(days=days_ahead)
+
+
+def _default_expiry(instrument: Instrument, today: date) -> date:
+    if instrument.is_commodity:
+        # MCX commodity options run monthly cycles that vary per commodity
+        # and shift for holidays — there's no simple formula like NSE's
+        # weekly Thursday. This is a rough illustrative stand-in only; real
+        # usage should get the actual listed expiry from kite_feed instead.
+        return today + timedelta(days=20)
+    return next_weekly_expiry(today)
 
 
 def _iv_smile(moneyness_log: float, base_iv: float) -> float:
@@ -65,9 +75,10 @@ def generate_option_chain(
     rng = np.random.default_rng(_seed_for(symbol, seed))
 
     as_of = as_of or datetime.now()
-    expiry = expiry or next_weekly_expiry(as_of.date())
-    expiry_dt = datetime.combine(expiry, datetime.min.time()) + timedelta(hours=15, minutes=30)
+    expiry = expiry or _default_expiry(instrument, as_of.date())
+    expiry_dt = datetime.combine(expiry, instrument.session_end)
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)
+    q = RISK_FREE_RATE if instrument.pricing_carry_rate_equals_risk_free else 0.0
 
     spot = spot_override if spot_override is not None else instrument.base_spot * (1 + rng.normal(0, 0.004))
     step = instrument.strike_step
@@ -84,8 +95,8 @@ def generate_option_chain(
         call_iv = _iv_smile(log_moneyness, instrument.base_iv)
         put_iv = _iv_smile(log_moneyness, instrument.base_iv)
 
-        call = _make_leg_quote(spot, strike, t, OptionType.CALL, call_iv, i, rng)
-        put = _make_leg_quote(spot, strike, t, OptionType.PUT, put_iv, i, rng)
+        call = _make_leg_quote(spot, strike, t, OptionType.CALL, call_iv, i, rng, q)
+        put = _make_leg_quote(spot, strike, t, OptionType.PUT, put_iv, i, rng, q)
         rows.append(ChainRow(strike=strike, call=call, put=put))
 
     return OptionChain(
@@ -107,15 +118,16 @@ def _make_leg_quote(
     iv: float,
     strike_offset: int,
     rng: np.random.Generator,
+    q: float = 0.0,
 ) -> LegQuote:
-    theo = bs_price(spot, strike, t, RISK_FREE_RATE, iv, option_type)
+    theo = bs_price(spot, strike, t, RISK_FREE_RATE, iv, option_type, q)
     spread_pct = 0.004 + 0.0015 * abs(strike_offset)
     mid = max(theo * (1 + rng.normal(0, 0.01)), 0.05)
     half_spread = max(mid * spread_pct, 0.05)
     bid = max(mid - half_spread, 0.05)
     ask = mid + half_spread
 
-    g = bs_greeks(spot, strike, t, RISK_FREE_RATE, iv, option_type)
+    g = bs_greeks(spot, strike, t, RISK_FREE_RATE, iv, option_type, q)
 
     # OI/volume peak near ATM and decay with distance; add noise for realism.
     distance_decay = math.exp(-0.15 * strike_offset**2)
@@ -148,7 +160,7 @@ def generate_minute_series(
     instrument = get_instrument(symbol)
     rng = np.random.default_rng(_seed_for(symbol + "-minute", seed))
     session_date = session_date or date.today()
-    start = datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15)
+    start = datetime.combine(session_date, instrument.session_start)
 
     dt = 1.0 / (252 * 375)  # one minute as a fraction of a trading year
     sigma = instrument.base_iv

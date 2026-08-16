@@ -1,10 +1,16 @@
 # Custom-Mojo — Intelligent Option Strategy Synthesis & Execution Suite
 
-An Indian options analytics and constraint-solving strategy discovery platform for
-Nifty 50, BankNifty, FinNifty, MidcpNifty, Sensex, and liquid F&O stocks. Two
+An Indian options analytics and constraint-solving strategy discovery platform.
+Primary focus: **Nifty, Sensex, MCX Crude Oil options, and MCX Gold options** —
+plus BankNifty/FinNifty/MidcpNifty and a slice of liquid F&O stocks. Two
 modes: **Research Mode** (option chain, Max Pain, PCR, OI/Smart OI, IV skew,
 Greeks, straddle decay) and **Strategy Command Mode** (the constraint-solving
-multi-leg strategy engine, backtesting, and paper execution).
+multi-leg strategy engine and backtesting).
+
+Current scope is **strategy discovery and analytics, not automated order
+execution** — the platform tells you what to trade and lets you paper-test it;
+placing the actual order is a manual step you take in your broker. See
+"Next steps not yet built" if that changes.
 
 ## Architecture
 
@@ -17,8 +23,9 @@ frontend/  Next.js (App Router) + TypeScript + Tailwind — Research & Strategy 
 
 | Module | Responsibility |
 |---|---|
-| `core/black_scholes.py` | Pricing, Greeks (Δ Γ Θ V ρ), implied-vol solver (Newton-Raphson + bisection) |
+| `core/black_scholes.py` | Pricing, Greeks (Δ Γ Θ V ρ), implied-vol solver (Newton-Raphson + bisection) — also doubles as Black-76 for options-on-futures when called with `q=r` (see "Index & equity options vs. commodity options" below) |
 | `core/pop.py` | Probability of Profit — delta-approximation heuristic and GBM Monte Carlo |
+| `data/instruments.py` | Per-underlying specs (lot size, strike step, Kite symbol mapping) and `is_index`/`is_commodity` flags driving margin sizing and pricing convention |
 | `data/mock_feed.py` | **Simulated** option-chain feed, on by default (see "Market data providers" below) |
 | `data/kite_feed.py` | **Live** option-chain feed via Zerodha Kite Connect |
 | `data/feed.py` | Facade that picks mock vs. Kite via `MARKET_DATA_PROVIDER` — the only module the rest of the app imports from |
@@ -41,6 +48,41 @@ frontend/  Next.js (App Router) + TypeScript + Tailwind — Research & Strategy 
   profit/loss, margin cap) → calls the solver → ranked strategy cards with
   legs, margin breakdown, payoff, PoP, EV, and Sharpe.
 
+## Index & equity options vs. commodity options
+
+Nifty/Sensex/stock options are options on a spot index or equity. MCX Crude
+Oil and Gold options are **options on futures contracts** — a structurally
+different instrument, priced with a different convention:
+
+- **Underlying price**: for indices/stocks it's the live spot LTP. For
+  commodities there's no single continuous spot price — `kite_feed.py`
+  resolves the futures contract each options expiry actually references
+  (the nearest one expiring on/after the options expiry) and uses *that*
+  contract's LTP.
+- **Pricing model**: options on futures are priced with Black-76, not plain
+  Black-Scholes. Rather than a separate implementation, this reuses
+  `core/black_scholes.py` with its carry/dividend-yield parameter `q` set
+  equal to `r` — that's mathematically exactly Black-76 (see
+  `tests/test_commodity_pricing.py` for the derivation check). Every
+  `Leg` carries its own `q`, set from `Instrument.pricing_carry_rate_equals_risk_free`
+  wherever a leg is constructed (`generator.py`, `converters.py`), so margin
+  scanning, backtest replay, and risk automation all reprice commodity
+  positions consistently.
+- **Margin**: commodities get a wider SPAN price-scan range (9% vs. 3.5%
+  for indices) — crude oil in particular moves far more than an equity
+  index (it went briefly negative in April 2020).
+- **Expiry cadence**: NSE index options are weekly; MCX commodity options
+  run monthly cycles that vary per commodity and shift for holidays.
+  `kite_feed.py` doesn't hardcode either — it always picks from whatever
+  expiries Kite's instrument dump actually lists. Only the *simulated*
+  mock feed needs an assumed default (Thursdays for index, +20 days for
+  commodities) since it has no real listing to read from.
+- **Contract specs**: `CRUDEOIL`/`GOLD` lot size, strike step, and base
+  price in `app/data/instruments.py` are **illustrative placeholders** —
+  MCX revises these periodically and lot size directly scales P&L/margin.
+  Verify against a live `kite.instruments("MCX")` pull before trusting any
+  number the solver produces for them.
+
 ## What's simulated vs. real
 
 This is a fully runnable, self-contained build with **no external
@@ -51,13 +93,11 @@ minute-by-minute underlying paths, no broker needed.
 
 What's still a documented stand-in even with `MARKET_DATA_PROVIDER=kite`:
 
-- **`app/broker/paper.py`** fills orders at the mid price with no slippage.
-  Implement `BrokerAdapter` (`app/broker/base.py`) against a real broker SDK
-  to go live with real order placement — that requires that broker's API
-  key/secret, which does not belong in this codebase. Running `PaperBroker`
-  against the *live* Kite feed (`MARKET_DATA_PROVIDER=kite` + `PaperBroker`)
-  is the recommended way to test before flipping to a real execution
-  adapter — real data, simulated fills.
+- **`app/broker/paper.py`** fills orders at the mid price with no slippage —
+  and is the *only* execution path this platform currently has, by design
+  (see "Current scope" above). Run it against the live Kite feed
+  (`MARKET_DATA_PROVIDER=kite` + `PaperBroker`) to sanity-check a discovered
+  strategy against real prices without placing anything.
 - **`app/margin/span.py`** approximates NSE's SPAN methodology (price/vol
   scanning + exposure margin) rather than calling the exchange's proprietary
   SPAN engine. Kite's own `order_margins()` API gives the broker's real
@@ -98,7 +138,10 @@ this before trusting anything Research Mode shows.
    for any order placed via API, even for a personal account.
 2. `cp backend/.env.example backend/.env` and set `KITE_API_KEY` and
    `MARKET_DATA_PROVIDER=kite`.
-3. Every trading day, refresh the access token (it expires ~6 AM IST daily):
+3. Every trading day, refresh the access token (it expires ~6 AM IST daily).
+   Run this from **your own machine** — it's a live session against your
+   real broker account either way, and shouldn't run from a shared/cloud
+   environment:
    ```bash
    cd backend
    export KITE_API_KEY=...      # from step 1
@@ -106,25 +149,35 @@ this before trusting anything Research Mode shows.
    python scripts/kite_login.py
    ```
    This walks you through the browser login and writes `KITE_ACCESS_TOKEN`
-   into `backend/.env` for you. Restart the backend afterward.
+   into `backend/.env` for you. Restart the backend afterward. There's also
+   an `--auto` mode that skips the browser using your user ID/password/TOTP
+   secret directly — see the script's docstring for the tradeoffs before
+   using it; it's opt-in for a reason.
 4. **Verify the symbol mapping before trusting any output.** `Instrument`
    entries in `app/data/instruments.py` carry `kite_underlying_name`,
-   `kite_spot_tradingsymbol`, etc. — index tradingsymbols in particular
-   aren't guaranteed stable. Confirm them against a live
-   `kite.instruments("NFO")` / `kite.instruments("NSE")` pull; a mismatch
-   raises a clear `KiteFeedError` rather than returning wrong data, but
-   it's worth checking once up front.
+   `kite_spot_tradingsymbol`, etc. — index tradingsymbols and MCX commodity
+   contract specs in particular aren't guaranteed stable. Confirm them
+   against a live `kite.instruments("NFO")` / `kite.instruments("NSE")` /
+   `kite.instruments("MCX")` pull; a mismatch raises a clear `KiteFeedError`
+   rather than returning wrong data, but it's worth checking once up front.
 
 ### Next steps not yet built
 
+Order execution is intentionally out of scope right now (this platform
+discovers and analyzes strategies; you place the trade yourself). If that
+changes later:
+
 - A `KiteBroker` implementing `app/broker/base.py` for real order placement
   (no atomic basket order in Kite's API — legs go in sequentially, so this
-  needs its own legging-risk handling).
+  needs its own legging-risk handling), plus a registered Algo ID (see
+  above) since SEBI requires one for any API-placed order.
 - Real margin via `kite.order_margins()` in place of the SPAN approximation.
 - Persistence — positions/orders currently live in memory only
   (`PaperBroker`); nothing survives a process restart.
 - An always-on worker for the risk-automation loop (`app/risk/automation.py`)
   — nothing currently calls `evaluate()` outside of backtests.
+- A daily OI snapshot cache so `kite_feed.py` can report real OI *change*
+  (currently always 0 — see "What's simulated vs. real" above).
 
 ## Running locally
 
@@ -140,7 +193,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 42 tests
+pytest -q   # 80 tests
 ```
 
 ### Frontend
@@ -157,7 +210,7 @@ Open `http://localhost:3000` (redirects to `/research`).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/instruments` | Supported indices & F&O stocks |
+| GET | `/api/instruments` | Supported indices, commodities (MCX), & F&O stocks |
 | GET | `/api/data-provider` | Which feed is active — `mock` or `kite` |
 | GET | `/api/option-chain/{symbol}` | Option chain (mock or live Kite, per `MARKET_DATA_PROVIDER`) |
 | GET | `/api/analytics/max-pain/{symbol}` | Max Pain strike & payout curve |

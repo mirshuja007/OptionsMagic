@@ -60,6 +60,34 @@ def test_strategy_discover_endpoint():
     assert len(body["results"]) <= 3
 
 
+def test_instruments_endpoint_includes_commodities_with_asset_class():
+    r = client.get("/api/instruments")
+    assert r.status_code == 200
+    by_symbol = {i["symbol"]: i for i in r.json()}
+    assert by_symbol["CRUDEOIL"]["asset_class"] == "commodity"
+    assert by_symbol["GOLD"]["asset_class"] == "commodity"
+    assert by_symbol["NIFTY"]["asset_class"] == "index"
+    assert by_symbol["RELIANCE"]["asset_class"] == "equity"
+
+
+def test_strategy_discover_endpoint_for_commodity():
+    payload = {
+        "symbol": "CRUDEOIL",
+        "constraints": {
+            "min_probability_of_profit": 0.55,
+            "min_yield_pct": 0.005,
+            "max_profit_cap": 200000,
+            "max_loss_cap": 100000,
+            "margin_cap": 500000,
+        },
+    }
+    r = client.post("/api/strategy/discover", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "CRUDEOIL"
+    assert len(body["results"]) <= 3
+
+
 def test_backtest_and_execution_flow():
     chain = client.get("/api/option-chain/NIFTY").json()
     strikes = sorted(row["strike"] for row in chain["rows"])

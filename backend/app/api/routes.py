@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -63,7 +63,7 @@ def _chain_row_out(row) -> ChainRowOut:
 def list_instruments():
     return [
         InstrumentOut(
-            symbol=i.symbol, display_name=i.display_name, is_index=i.is_index,
+            symbol=i.symbol, display_name=i.display_name, is_index=i.is_index, asset_class=i.asset_class,
             lot_size=i.lot_size, strike_step=i.strike_step, exchange=i.exchange,
         )
         for i in ALL_INSTRUMENTS.values()
@@ -184,7 +184,7 @@ def backtest(req: BacktestRequest):
     chain = _get_chain(req.symbol)
     instrument = get_instrument(req.symbol)
     legs = [leg_in_to_domain(leg_in, chain) for leg_in in req.legs]
-    expiry_dt = datetime.combine(req.expiry, datetime.min.time()) + timedelta(hours=15, minutes=30)
+    expiry_dt = datetime.combine(req.expiry, instrument.session_end)
     rules = RiskRules(**req.risk_rules.model_dump()) if req.risk_rules else None
 
     result = replay_strategy(legs, instrument, expiry_dt, session_date=req.session_date, risk_rules=rules)

@@ -1,13 +1,14 @@
-"""Static instrument metadata for supported NSE/BSE F&O underlyings.
+"""Static instrument metadata for supported NSE/BSE/MCX underlyings.
 
 Real deployments would source this (and live spot/chain data) from a broker
-or vendor feed (Zerodha Kite, AngelOne SmartAPI, Fyers, NSE India, etc).
+or vendor feed (Zerodha Kite, AngelOne SmartAPI, Fyers, NSE/MCX India, etc).
 ``app.data.mock_feed`` stands in as a self-contained simulated feed so the
 rest of the platform is fully runnable and testable offline.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import time
 
 
 @dataclass(frozen=True)
@@ -21,27 +22,68 @@ class Instrument:
     base_iv: float  # annualized, decimal
     exchange: str
 
+    # Commodity options (MCX Crude Oil, Gold, ...) are options *on futures
+    # contracts*, not on a spot index — this drives both margin sizing and
+    # pricing convention below. Kept as its own bool (mirroring is_index)
+    # rather than a free-form "asset_class" string so there's no way for an
+    # entry below to forget to set it and silently misclassify.
+    is_commodity: bool = False
+
     # --- Kite Connect symbol mapping ---
-    # ``kite_underlying_name`` filters the "name" column of Kite's NFO/BFO
-    # instrument dump (``kite.instruments(exchange)``) down to this
-    # underlying's option contracts. ``kite_spot_*`` locates the index/stock
-    # spot quote. Index tradingsymbols in particular are NOT guaranteed
-    # stable — verify these against a live ``kite.instruments()`` pull before
-    # going live; a silent mismatch here means an empty chain, not a crash.
+    # ``kite_underlying_name`` filters the "name" column of Kite's
+    # NFO/BFO/MCX instrument dump (``kite.instruments(exchange)``) down to
+    # this underlying's option contracts. ``kite_spot_*`` locates the
+    # index/stock spot quote — for commodities (is_commodity=True) it's
+    # unused; the underlying's price instead comes from the matching futures
+    # contract, resolved dynamically per options expiry (see kite_feed.py).
+    # Index tradingsymbols in particular are NOT guaranteed stable — verify
+    # these against a live ``kite.instruments()`` pull before going live; a
+    # silent mismatch here means an empty chain, not a crash.
     kite_underlying_name: str = ""
-    kite_options_exchange: str = "NFO"  # "NFO" for NSE F&O, "BFO" for BSE F&O (Sensex/Bankex)
+    kite_options_exchange: str = "NFO"  # "NFO" NSE F&O, "BFO" BSE F&O, "MCX" commodities
     kite_spot_exchange: str = "NSE"
     kite_spot_tradingsymbol: str = ""
 
     @property
+    def asset_class(self) -> str:
+        """"index" | "commodity" | "equity", derived from is_index/is_commodity."""
+        if self.is_commodity:
+            return "commodity"
+        return "index" if self.is_index else "equity"
+
+    @property
+    def pricing_carry_rate_equals_risk_free(self) -> bool:
+        """Commodity options are options-on-futures: correct Black-Scholes
+        pricing sets the carry/dividend yield q equal to r, which reduces
+        the standard formula to Black-76 (the market-standard model for
+        options on futures). Equity/index options here use q=0.
+        """
+        return self.is_commodity
+
+    @property
     def margin_price_scan_pct(self) -> float:
         """Approximate SPAN price scan range as a fraction of spot."""
+        if self.is_commodity:
+            return 0.09  # commodities (esp. crude) run materially more volatile than equity indices
         return 0.035 if self.is_index else 0.06
 
     @property
     def margin_exposure_pct(self) -> float:
-        """Approximate SEBI exposure-margin add-on as a fraction of notional."""
+        """Approximate exchange exposure-margin add-on as a fraction of notional."""
+        if self.is_commodity:
+            return 0.06
         return 0.03 if self.is_index else 0.05
+
+    @property
+    def session_start(self) -> time:
+        """Approximate; MCX's evening session in particular varies by
+        commodity and by US daylight-saving time — treat as illustrative.
+        """
+        return time(9, 0) if self.is_commodity else time(9, 15)
+
+    @property
+    def session_end(self) -> time:
+        return time(23, 30) if self.is_commodity else time(15, 30)
 
 
 INDICES: dict[str, Instrument] = {
@@ -93,7 +135,31 @@ STOCKS: dict[str, Instrument] = {
                         kite_underlying_name="SBIN", kite_spot_tradingsymbol="SBIN"),
 }
 
-ALL_INSTRUMENTS: dict[str, Instrument] = {**INDICES, **STOCKS}
+# MCX commodity options — options on futures contracts, settled per MCX's
+# monthly (not weekly) expiry cycles. lot_size/strike_step/base_spot/base_iv
+# below are ILLUSTRATIVE PLACEHOLDERS: MCX periodically revises contract
+# specs (lot size directly scales P&L and margin), and commodity prices move
+# enough that a hardcoded "base_spot" is only good for rough shape-testing.
+# Verify against a live `kite.instruments("MCX")` pull before trusting any
+# margin/yield number this produces. kite_spot_tradingsymbol is intentionally
+# blank — the underlying price is resolved dynamically to the matching
+# futures contract per options expiry (see kite_feed.py's futures lookup).
+COMMODITIES: dict[str, Instrument] = {
+    "CRUDEOIL": Instrument(
+        "CRUDEOIL", "Crude Oil", False, 100, 50, 6200.0, 0.35, "MCX",
+        is_commodity=True,
+        kite_underlying_name="CRUDEOIL", kite_options_exchange="MCX",
+        kite_spot_exchange="MCX", kite_spot_tradingsymbol="",
+    ),
+    "GOLD": Instrument(
+        "GOLD", "Gold", False, 100, 100, 72000.0, 0.14, "MCX",
+        is_commodity=True,
+        kite_underlying_name="GOLD", kite_options_exchange="MCX",
+        kite_spot_exchange="MCX", kite_spot_tradingsymbol="",
+    ),
+}
+
+ALL_INSTRUMENTS: dict[str, Instrument] = {**INDICES, **STOCKS, **COMMODITIES}
 
 
 def get_instrument(symbol: str) -> Instrument:

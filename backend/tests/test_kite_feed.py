@@ -125,19 +125,23 @@ def test_quote_to_leg_falls_back_to_ltp_when_depth_missing():
 
 
 class FakeKite:
-    def __init__(self, nfo_rows, spot_ltp, quote_map, historical_candles=None):
+    def __init__(self, nfo_rows, spot_ltp, quote_map, historical_candles=None, extra_dumps=None, ltp_map=None):
         self._nfo_rows = nfo_rows
         self._spot_ltp = spot_ltp
         self._quote_map = quote_map
         self._historical_candles = historical_candles or []
+        self._extra_dumps = extra_dumps or {}
+        self._ltp_map = ltp_map or {}
 
     def instruments(self, exchange):
+        if exchange in self._extra_dumps:
+            return self._extra_dumps[exchange]
         if exchange == "NFO":
             return self._nfo_rows
         return [{"tradingsymbol": "NIFTY 50", "instrument_token": 999, "name": "NIFTY"}]
 
     def ltp(self, key):
-        return {key: {"last_price": self._spot_ltp}}
+        return {key: {"last_price": self._ltp_map.get(key, self._spot_ltp)}}
 
     def quote(self, keys):
         return {k: self._quote_map[k] for k in keys if k in self._quote_map}
@@ -234,3 +238,87 @@ def test_get_kite_client_succeeds_and_caches_with_env_vars(monkeypatch):
     client_b = get_kite_client()
     assert client_a is client_b  # cached for process lifetime
     reset_kite_client()
+
+
+# ---------------------------------------------------------------------------
+# Commodity (options-on-futures) underlying resolution
+# ---------------------------------------------------------------------------
+
+
+def _fut_row(expiry: date, tradingsymbol: str, token: int) -> dict:
+    return {"tradingsymbol": tradingsymbol, "name": "CRUDEOIL", "expiry": expiry, "instrument_type": "FUT", "instrument_token": token}
+
+
+def test_futures_price_picks_nearest_contract_on_or_after_options_expiry(monkeypatch):
+    from app.data.instruments import get_instrument
+    from app.data.kite_feed import _futures_price
+
+    near_expiry = date(2026, 8, 19)
+    far_expiry = date(2026, 9, 19)
+    fut_rows = [_fut_row(near_expiry, "CRUDEOIL26AUGFUT", 1), _fut_row(far_expiry, "CRUDEOIL26SEPFUT", 2)]
+    fake = FakeKite(
+        nfo_rows=[], spot_ltp=0.0, quote_map={},
+        extra_dumps={"MCX": fut_rows},
+        ltp_map={"MCX:CRUDEOIL26AUGFUT": 6100.0, "MCX:CRUDEOIL26SEPFUT": 6250.0},
+    )
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    instrument = get_instrument("CRUDEOIL")
+    # An options expiry between the two contracts should resolve to the September future.
+    result = _futures_price(fake, instrument, date(2026, 8, 25))
+    assert result == 6250.0
+
+    kite_feed.clear_instrument_cache()
+    result_near = _futures_price(fake, instrument, date(2026, 8, 10))
+    assert result_near == 6100.0
+
+
+def _build_fake_commodity_fixtures(spot=6200.0, expiry=None):
+    from app.data.instruments import get_instrument
+
+    instrument = get_instrument("CRUDEOIL")
+    expiry = expiry or (date.today() + timedelta(days=15))
+    strikes = [6100, 6150, 6200, 6250, 6300]
+    mcx_rows = [_fut_row(expiry + timedelta(days=5), "CRUDEOIL26AUGFUT", 1)]
+    quote_map = {}
+    for strike in strikes:
+        for side in ("CE", "PE"):
+            symbol = f"CRUDEOIL_{strike}_{side}"
+            mcx_rows.append(_instrument_row(strike, side, expiry, symbol))
+            mcx_rows[-1]["name"] = instrument.kite_underlying_name
+            key = f"MCX:{symbol}"
+            option_type = OptionType.CALL if side == "CE" else OptionType.PUT
+            theo = bs_price(spot, strike, 0.05, 0.065, 0.35, option_type, q=0.065)
+            quote_map[key] = {
+                "last_price": theo,
+                "oi": 500,
+                "volume": 200,
+                "depth": {"buy": [{"price": theo - 0.5}], "sell": [{"price": theo + 0.5}]},
+            }
+    return mcx_rows, quote_map, expiry
+
+
+def test_generate_option_chain_for_commodity_uses_futures_underlying(monkeypatch):
+    spot = 6210.0
+    mcx_rows, quote_map, expiry = _build_fake_commodity_fixtures(spot=spot)
+    fake = FakeKite(
+        nfo_rows=[], spot_ltp=0.0, quote_map=quote_map,
+        extra_dumps={"MCX": mcx_rows},
+        ltp_map={"MCX:CRUDEOIL26AUGFUT": spot},
+    )
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    chain = kite_feed.generate_option_chain("CRUDEOIL", num_strikes=3)
+
+    assert chain.symbol == "CRUDEOIL"
+    assert chain.spot == spot
+    assert len(chain.rows) == 3
+    for row in chain.rows:
+        # Loose tolerance: the fixture's quotes were built at a fixed t while
+        # the chain computes its own t from expiry - now, so exact IV
+        # round-tripping isn't the point here (test_commodity_pricing.py
+        # covers Black-76 correctness precisely) — this just checks the
+        # futures-underlying wiring produces a sane, positive IV.
+        assert 0.1 < row.call.iv < 0.6

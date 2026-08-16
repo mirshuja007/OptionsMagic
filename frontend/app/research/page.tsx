@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
+import type { Instrument, MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
 import SymbolSelector from "@/components/SymbolSelector";
 import StatTile from "@/components/StatTile";
 import OptionChainTable from "@/components/OptionChainTable";
@@ -13,6 +13,7 @@ import TradingViewWidget from "@/components/TradingViewWidget";
 
 export default function ResearchPage() {
   const [symbol, setSymbol] = useState("NIFTY");
+  const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [chain, setChain] = useState<OptionChain | null>(null);
   const [maxPain, setMaxPain] = useState<MaxPainResponse | null>(null);
   const [pcr, setPcr] = useState<PcrResponse | null>(null);
@@ -20,6 +21,12 @@ export default function ResearchPage() {
   const [vol, setVol] = useState<VolatilityResponse | null>(null);
   const [straddle, setStraddle] = useState<StraddleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.instruments().then(setInstruments).catch(() => undefined);
+  }, []);
+
+  const activeExchange = instruments.find((i) => i.symbol === symbol)?.exchange ?? "NSE";
 
   useEffect(() => {
     setError(null);
@@ -55,7 +62,7 @@ export default function ResearchPage() {
         </div>
       )}
 
-      <TradingViewWidget symbol={symbol} />
+      <TradingViewWidget symbol={symbol} exchange={activeExchange} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile label="Spot" value={chain ? chain.spot.toFixed(2) : "—"} />

@@ -25,8 +25,9 @@ export default function SymbolSelector({
     return <div className="text-sm text-danger">Failed to load instruments: {error}</div>;
   }
 
-  const indices = instruments.filter((i) => i.is_index);
-  const stocks = instruments.filter((i) => !i.is_index);
+  const indices = instruments.filter((i) => i.asset_class === "index");
+  const stocks = instruments.filter((i) => i.asset_class === "equity");
+  const commodities = instruments.filter((i) => i.asset_class === "commodity");
 
   return (
     <select
@@ -36,6 +37,13 @@ export default function SymbolSelector({
     >
       <optgroup label="Indices">
         {indices.map((i) => (
+          <option key={i.symbol} value={i.symbol}>
+            {i.display_name}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Commodities (MCX)">
+        {commodities.map((i) => (
           <option key={i.symbol} value={i.symbol}>
             {i.display_name}
           </option>

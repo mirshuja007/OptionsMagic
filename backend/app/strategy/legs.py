@@ -27,6 +27,7 @@ class Leg:
     quantity_lots: int
     entry_price: float  # premium per unit at entry (mid price from the chain)
     iv: float
+    q: float = 0.0  # carry/dividend yield for repricing; commodity (futures-underlying) legs set q=r (Black-76)
 
     @property
     def sign(self) -> int:
@@ -63,7 +64,7 @@ def mark_to_market(legs: list[Leg], spot: float, t: float, r: float, lot_size: i
     total = 0.0
     for leg in legs:
         shifted_iv = max(leg.iv + iv_shift, 1e-4)
-        current_price = bs_price(spot, leg.strike, t, r, shifted_iv, leg.option_type) if t > 0 else intrinsic_value(
+        current_price = bs_price(spot, leg.strike, t, r, shifted_iv, leg.option_type, leg.q) if t > 0 else intrinsic_value(
             spot, leg.strike, leg.option_type
         )
         total += _signed_units(leg, lot_size) * (current_price - leg.entry_price)
@@ -73,7 +74,7 @@ def mark_to_market(legs: list[Leg], spot: float, t: float, r: float, lot_size: i
 def portfolio_greeks(legs: list[Leg], spot: float, t: float, r: float, lot_size: int) -> Greeks:
     delta = gamma = theta = vega = rho = 0.0
     for leg in legs:
-        g = bs_greeks(spot, leg.strike, t, r, leg.iv, leg.option_type) if t > 0 else Greeks(0, 0, 0, 0, 0)
+        g = bs_greeks(spot, leg.strike, t, r, leg.iv, leg.option_type, leg.q) if t > 0 else Greeks(0, 0, 0, 0, 0)
         units = _signed_units(leg, lot_size)
         delta += units * g.delta
         gamma += units * g.gamma

@@ -7,20 +7,44 @@ once per trading day before the backend starts (or the backend process
 needs restarting after this runs, since app.data.kite_client caches the
 client for the life of the process).
 
-Usage:
+Run this from your OWN machine, not a shared or cloud environment — it's
+your live broker session either way, and the automated mode below submits
+your actual password.
+
+--- Manual mode (default, recommended) ---
+Completes the login in your browser; only ever needs KITE_API_KEY and
+KITE_API_SECRET, never your password.
+
     cd backend
-    export KITE_API_KEY=...      # from the Kite Connect developer console
-    export KITE_API_SECRET=...   # never put this in a committed file
+    export KITE_API_KEY=...
+    export KITE_API_SECRET=...
     python scripts/kite_login.py
 
-The script prints a login URL, you complete the login in a browser, and
-paste back either the full redirect URL or just the `request_token` query
-parameter from it. On success it writes/updates KITE_ACCESS_TOKEN in
-backend/.env (creating the file if needed) and never prints or stores
-KITE_API_SECRET anywhere.
+--- Automated mode (--auto, opt-in) ---
+Submits your user ID, password, and a TOTP code (derived from your TOTP
+secret via pyotp) directly to Zerodha's login endpoints, skipping the
+browser step entirely. This uses undocumented endpoints that Kite Connect's
+official docs do not describe or support — it's a widely-used pattern in
+the personal-algo-trading community, not something Zerodha publishes an API
+for, and it could stop working or draw extra scrutiny on your account at
+any time. Use it only if you're comfortable with that tradeoff, and only
+for your own account.
+
+    cd backend
+    export KITE_API_KEY=...
+    export KITE_API_SECRET=...
+    export KITE_USER_ID=...
+    export KITE_PASSWORD=...
+    export KITE_TOTP_SECRET=...   # the base32 TOTP seed, not a 6-digit code
+    python scripts/kite_login.py --auto
+
+Either mode writes KITE_API_KEY and KITE_ACCESS_TOKEN into backend/.env
+(gitignored) and never prints or stores your password, TOTP secret, or API
+secret anywhere.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
@@ -58,7 +82,64 @@ def upsert_env_var(path: Path, key: str, value: str) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def manual_request_token(kite: KiteConnect) -> str:
+    print("1. Open this URL, log in with your Zerodha credentials + 2FA:\n")
+    print(f"   {kite.login_url()}\n")
+    print("2. After login you'll be redirected to your app's redirect URL with")
+    print("   a `request_token` query parameter — paste that full URL (or just")
+    print("   the token) below.\n")
+    raw = input("Redirect URL or request_token: ")
+    return extract_request_token(raw)
+
+
+def automated_request_token(api_key: str, user_id: str, password: str, totp_secret: str) -> str:
+    """Submits credentials + a live TOTP code directly to Zerodha's
+    (undocumented) login endpoints instead of using a browser. See the
+    module docstring's "Automated mode" section before using this.
+    """
+    import pyotp
+    import requests
+
+    session = requests.Session()
+
+    login_resp = session.post(
+        "https://kite.zerodha.com/api/login",
+        data={"user_id": user_id, "password": password},
+        timeout=10,
+    )
+    login_resp.raise_for_status()
+    request_id = login_resp.json()["data"]["request_id"]
+
+    totp_code = pyotp.TOTP(totp_secret).now()
+    twofa_resp = session.post(
+        "https://kite.zerodha.com/api/twofa",
+        data={"user_id": user_id, "request_id": request_id, "twofa_value": totp_code, "twofa_type": "totp"},
+        timeout=10,
+    )
+    twofa_resp.raise_for_status()
+
+    connect_url = f"https://kite.zerodha.com/connect/login?api_key={api_key}&v=3"
+    for _ in range(5):
+        resp = session.get(connect_url, allow_redirects=False, timeout=10)
+        if resp.status_code not in (301, 302, 303, 307, 308):
+            raise RuntimeError(f"Expected a redirect from Kite, got HTTP {resp.status_code} instead.")
+        location = resp.headers.get("Location", "")
+        if "request_token=" in location:
+            return extract_request_token(location)
+        connect_url = location
+
+    raise RuntimeError("Did not find request_token after following redirects — Kite's login flow may have changed.")
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Skip the browser step and log in with KITE_USER_ID/KITE_PASSWORD/KITE_TOTP_SECRET (see module docstring).",
+    )
+    args = parser.parse_args()
+
     api_key = os.environ.get("KITE_API_KEY")
     api_secret = os.environ.get("KITE_API_SECRET")
     if not api_key or not api_secret:
@@ -66,26 +147,35 @@ def main() -> int:
         return 1
 
     kite = KiteConnect(api_key=api_key)
-    print("1. Open this URL, log in with your Zerodha credentials + 2FA:\n")
-    print(f"   {kite.login_url()}\n")
-    print("2. After login you'll be redirected to your app's redirect URL with")
-    print("   a `request_token` query parameter — paste that full URL (or just")
-    print("   the token) below.\n")
 
-    raw = input("Redirect URL or request_token: ")
     try:
-        request_token = extract_request_token(raw)
-    except ValueError as exc:
+        if args.auto:
+            user_id = os.environ.get("KITE_USER_ID")
+            password = os.environ.get("KITE_PASSWORD")
+            totp_secret = os.environ.get("KITE_TOTP_SECRET")
+            if not user_id or not password or not totp_secret:
+                print(
+                    "--auto requires KITE_USER_ID, KITE_PASSWORD, and KITE_TOTP_SECRET in your shell.",
+                    file=sys.stderr,
+                )
+                return 1
+            request_token = automated_request_token(api_key, user_id, password, totp_secret)
+        else:
+            request_token = manual_request_token(kite)
+    except (ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
-
-    try:
-        session = kite.generate_session(request_token, api_secret=api_secret)
-    except KiteException as exc:
-        print(f"Login exchange failed: {exc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 — surface any requests/HTTP failure with context, not a raw traceback
+        print(f"Login failed: {exc}", file=sys.stderr)
         return 1
 
-    access_token = session["access_token"]
+    try:
+        session_data = kite.generate_session(request_token, api_secret=api_secret)
+    except KiteException as exc:
+        print(f"Token exchange failed: {exc}", file=sys.stderr)
+        return 1
+
+    access_token = session_data["access_token"]
     upsert_env_var(ENV_PATH, "KITE_API_KEY", api_key)
     upsert_env_var(ENV_PATH, "KITE_ACCESS_TOKEN", access_token)
     print(f"\nWrote KITE_API_KEY and KITE_ACCESS_TOKEN to {ENV_PATH}")

@@ -51,6 +51,7 @@ class InstrumentOut(BaseModel):
     symbol: str
     display_name: str
     is_index: bool
+    asset_class: str
     lot_size: int
     strike_step: float
     exchange: str

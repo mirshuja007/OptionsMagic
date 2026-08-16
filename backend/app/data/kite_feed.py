@@ -25,7 +25,7 @@ Known gaps, tracked rather than hidden:
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from kiteconnect.exceptions import KiteException
 
@@ -134,19 +134,48 @@ def _quote_key(instrument: Instrument, tradingsymbol: str) -> str:
     return f"{instrument.kite_options_exchange}:{tradingsymbol}"
 
 
-def _spot_price(kite, instrument: Instrument) -> float:
-    key = f"{instrument.kite_spot_exchange}:{instrument.kite_spot_tradingsymbol}"
+def _ltp(kite, key: str) -> float:
     try:
         resp = kite.ltp(key)
     except KiteException as exc:
-        raise KiteFeedError(f"Failed to fetch spot LTP for {key}: {exc}") from exc
+        raise KiteFeedError(f"Failed to fetch LTP for {key}: {exc}") from exc
     try:
         return float(resp[key]["last_price"])
     except KeyError as exc:
         raise KiteFeedError(f"Unexpected LTP response shape for {key}: {resp}") from exc
 
 
-def _quote_to_leg(quote: dict, spot: float, strike: float, t: float, r: float, option_type: OptionType) -> LegQuote:
+def _futures_price(kite, instrument: Instrument, options_expiry: date) -> float:
+    """Commodity options are options on a futures contract, not a spot
+    index — resolve the futures contract this options expiry references
+    (the nearest one expiring on/after the options expiry) and use its LTP
+    as the pricing underlying.
+    """
+    dump = _instrument_dump(instrument.kite_spot_exchange)
+    fut_rows = [
+        r for r in dump if r.get("name") == instrument.kite_underlying_name and r.get("instrument_type") == "FUT"
+    ]
+    if not fut_rows:
+        raise KiteFeedError(
+            f"No FUT contracts found for name='{instrument.kite_underlying_name}' on "
+            f"{instrument.kite_spot_exchange}; verify Instrument.kite_underlying_name."
+        )
+    candidates = sorted(fut_rows, key=lambda r: _as_date(r["expiry"]))
+    match = next((r for r in candidates if _as_date(r["expiry"]) >= options_expiry), candidates[-1])
+    key = f"{instrument.kite_spot_exchange}:{match['tradingsymbol']}"
+    return _ltp(kite, key)
+
+
+def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> float:
+    if instrument.is_commodity:
+        return _futures_price(kite, instrument, resolved_expiry)
+    key = f"{instrument.kite_spot_exchange}:{instrument.kite_spot_tradingsymbol}"
+    return _ltp(kite, key)
+
+
+def _quote_to_leg(
+    quote: dict, spot: float, strike: float, t: float, r: float, option_type: OptionType, q: float = 0.0
+) -> LegQuote:
     ltp = float(quote.get("last_price") or 0.0)
     depth = quote.get("depth") or {}
     buy_levels = depth.get("buy") or []
@@ -159,10 +188,10 @@ def _quote_to_leg(quote: dict, spot: float, strike: float, t: float, r: float, o
         ask = ltp + 0.05 if ltp > 0 else bid + 0.10
 
     mid = (bid + ask) / 2.0
-    iv = implied_volatility(mid, spot, strike, t, r, option_type) if mid > 0 and t > 0 else None
+    iv = implied_volatility(mid, spot, strike, t, r, option_type, q) if mid > 0 and t > 0 else None
     if iv is None:
         iv = DEFAULT_IV_FALLBACK
-    g = bs_greeks(spot, strike, t, r, iv, option_type) if t > 0 else Greeks(0.0, 0.0, 0.0, 0.0, 0.0)
+    g = bs_greeks(spot, strike, t, r, iv, option_type, q) if t > 0 else Greeks(0.0, 0.0, 0.0, 0.0, 0.0)
 
     return LegQuote(
         option_type=option_type,
@@ -191,11 +220,12 @@ def generate_option_chain(
     expiries = sorted({_as_date(r["expiry"]) for r in option_rows})
     resolved_expiry = _pick_expiry(expiries, expiry, as_of.date())
 
-    spot = _spot_price(kite, instrument)
+    spot = _underlying_price(kite, instrument, resolved_expiry)
     strike_map = _select_strike_rows(option_rows, resolved_expiry, spot, num_strikes)
 
-    expiry_dt = datetime.combine(resolved_expiry, datetime.min.time()) + timedelta(hours=15, minutes=30)
+    expiry_dt = datetime.combine(resolved_expiry, instrument.session_end)
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)
+    q = RISK_FREE_RATE if instrument.pricing_carry_rate_equals_risk_free else 0.0
 
     token_map: dict[str, tuple[float, str]] = {}
     for strike, legs in strike_map.items():
@@ -214,7 +244,7 @@ def generate_option_chain(
         if quote is None:
             continue
         option_type = OptionType.CALL if side == "CE" else OptionType.PUT
-        rows_by_strike.setdefault(strike, {})[side] = _quote_to_leg(quote, spot, strike, t, RISK_FREE_RATE, option_type)
+        rows_by_strike.setdefault(strike, {})[side] = _quote_to_leg(quote, spot, strike, t, RISK_FREE_RATE, option_type, q)
 
     rows = [
         ChainRow(strike=strike, call=legs["CE"], put=legs["PE"])
@@ -247,16 +277,27 @@ def generate_minute_series(
     kite = get_kite_client()
     session_date = session_date or date.today()
 
-    dump = _instrument_dump(instrument.kite_spot_exchange)
-    match = next((r for r in dump if r.get("tradingsymbol") == instrument.kite_spot_tradingsymbol), None)
+    if instrument.is_commodity:
+        # No single static underlying instrument — use whichever futures
+        # contract was front-month as of session_date.
+        dump = _instrument_dump(instrument.kite_spot_exchange)
+        fut_rows = [
+            r for r in dump if r.get("name") == instrument.kite_underlying_name and r.get("instrument_type") == "FUT"
+        ]
+        candidates = sorted(fut_rows, key=lambda r: _as_date(r["expiry"]))
+        match = next((r for r in candidates if _as_date(r["expiry"]) >= session_date), candidates[-1] if candidates else None)
+    else:
+        dump = _instrument_dump(instrument.kite_spot_exchange)
+        match = next((r for r in dump if r.get("tradingsymbol") == instrument.kite_spot_tradingsymbol), None)
+
     if match is None:
         raise KiteFeedError(
-            f"Spot instrument '{instrument.kite_spot_tradingsymbol}' not found on "
-            f"{instrument.kite_spot_exchange}; verify Instrument.kite_spot_tradingsymbol."
+            f"No underlying instrument found for {symbol} on {instrument.kite_spot_exchange}; "
+            f"verify Instrument.kite_underlying_name / kite_spot_tradingsymbol."
         )
 
-    start = datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15)
-    end = datetime.combine(session_date, datetime.min.time()) + timedelta(hours=15, minutes=30)
+    start = datetime.combine(session_date, instrument.session_start)
+    end = datetime.combine(session_date, instrument.session_end)
     try:
         candles = kite.historical_data(match["instrument_token"], start, end, interval="minute")
     except KiteException as exc:

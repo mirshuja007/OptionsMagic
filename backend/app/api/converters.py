@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.api.schemas import LegIn, LegOut
 from app.core.black_scholes import OptionType
+from app.data.instruments import get_instrument
 from app.data.mock_feed import OptionChain
 from app.strategy.legs import Leg, Side
 
@@ -23,6 +24,9 @@ def leg_in_to_domain(leg_in: LegIn, chain: OptionChain) -> Leg:
         entry_price = entry_price if entry_price is not None else round((quote.bid + quote.ask) / 2.0, 2)
         iv = iv if iv is not None else quote.iv
 
+    instrument = get_instrument(chain.symbol)
+    q = chain.risk_free_rate if instrument.pricing_carry_rate_equals_risk_free else 0.0
+
     return Leg(
         option_type=option_type,
         strike=leg_in.strike,
@@ -30,6 +34,7 @@ def leg_in_to_domain(leg_in: LegIn, chain: OptionChain) -> Leg:
         quantity_lots=leg_in.quantity_lots,
         entry_price=entry_price,
         iv=iv,
+        q=q,
     )
 
 
