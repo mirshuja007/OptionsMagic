@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background-color: #0b0f14;
+  color: #e5e9ee;
+}
+
+::selection {
+  background: #22c55e33;
+}
+
+.card {
+  background-color: #121821;
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+}

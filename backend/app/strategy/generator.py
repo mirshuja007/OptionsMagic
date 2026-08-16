@@ -1,0 +1,157 @@
+"""Combinatorial generation of multi-leg strategy candidates from a live
+option chain: credit spreads, iron condors, iron flies, and ratio spreads.
+Each candidate is a plain list of ``Leg`` that downstream margin/PoP/solver
+code can treat identically regardless of strategy shape.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.core.black_scholes import OptionType
+from app.data.mock_feed import ChainRow, OptionChain
+from app.strategy.legs import Leg, Side
+
+
+@dataclass(frozen=True)
+class Candidate:
+    strategy_type: str
+    legs: list[Leg]
+
+
+def _row_by_strike(chain: OptionChain) -> dict[float, ChainRow]:
+    return {row.strike: row for row in chain.rows}
+
+
+def _mid(bid: float, ask: float) -> float:
+    return round((bid + ask) / 2.0, 2)
+
+
+def _leg(row: ChainRow, option_type: OptionType, side: Side, qty: int) -> Leg:
+    quote = row.call if option_type == OptionType.CALL else row.put
+    return Leg(
+        option_type=option_type,
+        strike=row.strike,
+        side=side,
+        quantity_lots=qty,
+        entry_price=_mid(quote.bid, quote.ask),
+        iv=quote.iv,
+    )
+
+
+def bull_put_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
+    by_strike = _row_by_strike(chain)
+    step = _strike_step(chain)
+    out: list[Candidate] = []
+    for row in chain.rows:
+        if row.strike >= chain.spot:
+            continue  # short leg must be OTM put
+        for width in widths:
+            long_strike = row.strike - width * step
+            if long_strike not in by_strike:
+                continue
+            legs = [
+                _leg(row, OptionType.PUT, Side.SHORT, 1),
+                _leg(by_strike[long_strike], OptionType.PUT, Side.LONG, 1),
+            ]
+            out.append(Candidate("bull_put_spread", legs))
+    return out
+
+
+def bear_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
+    by_strike = _row_by_strike(chain)
+    step = _strike_step(chain)
+    out: list[Candidate] = []
+    for row in chain.rows:
+        if row.strike <= chain.spot:
+            continue  # short leg must be OTM call
+        for width in widths:
+            long_strike = row.strike + width * step
+            if long_strike not in by_strike:
+                continue
+            legs = [
+                _leg(row, OptionType.CALL, Side.SHORT, 1),
+                _leg(by_strike[long_strike], OptionType.CALL, Side.LONG, 1),
+            ]
+            out.append(Candidate("bear_call_spread", legs))
+    return out
+
+
+def iron_condors(
+    chain: OptionChain,
+    widths: tuple[int, ...] = (1, 2, 3, 4),
+    max_combos: int = 300,
+) -> list[Candidate]:
+    puts = bull_put_spreads(chain, widths)
+    calls = bear_call_spreads(chain, widths)
+    out: list[Candidate] = []
+    for put_spread in puts:
+        for call_spread in calls:
+            legs = [*put_spread.legs, *call_spread.legs]
+            out.append(Candidate("iron_condor", legs))
+            if len(out) >= max_combos:
+                return out
+    return out
+
+
+def iron_flies(chain: OptionChain, wing_widths: tuple[int, ...] = (2, 3, 4, 5, 6)) -> list[Candidate]:
+    by_strike = _row_by_strike(chain)
+    step = _strike_step(chain)
+    atm_row = min(chain.rows, key=lambda r: abs(r.strike - chain.spot))
+    out: list[Candidate] = []
+    for width in wing_widths:
+        call_wing_strike = atm_row.strike + width * step
+        put_wing_strike = atm_row.strike - width * step
+        if call_wing_strike not in by_strike or put_wing_strike not in by_strike:
+            continue
+        legs = [
+            _leg(atm_row, OptionType.CALL, Side.SHORT, 1),
+            _leg(atm_row, OptionType.PUT, Side.SHORT, 1),
+            _leg(by_strike[call_wing_strike], OptionType.CALL, Side.LONG, 1),
+            _leg(by_strike[put_wing_strike], OptionType.PUT, Side.LONG, 1),
+        ]
+        out.append(Candidate("iron_fly", legs))
+    return out
+
+
+def ratio_spreads(
+    chain: OptionChain,
+    sell_ratio: int = 2,
+    otm_offsets: tuple[int, ...] = (2, 3, 4, 5),
+) -> list[Candidate]:
+    """1x-N ratio spreads: buy 1 near-the-money leg, sell N further-OTM legs
+    on the same side. Undefined risk on the excess short legs — the solver's
+    max-loss/margin filters naturally weed out unsuitable ones.
+    """
+    by_strike = _row_by_strike(chain)
+    step = _strike_step(chain)
+    atm_row = min(chain.rows, key=lambda r: abs(r.strike - chain.spot))
+    out: list[Candidate] = []
+
+    for option_type in (OptionType.CALL, OptionType.PUT):
+        long_strike = atm_row.strike
+        long_row = by_strike[long_strike]
+        for offset in otm_offsets:
+            short_strike = long_strike + offset * step if option_type == OptionType.CALL else long_strike - offset * step
+            if short_strike not in by_strike:
+                continue
+            legs = [
+                _leg(long_row, option_type, Side.LONG, 1),
+                _leg(by_strike[short_strike], option_type, Side.SHORT, sell_ratio),
+            ]
+            out.append(Candidate(f"ratio_spread_{option_type.value.lower()}", legs))
+    return out
+
+
+def _strike_step(chain: OptionChain) -> float:
+    strikes = sorted({row.strike for row in chain.rows})
+    return strikes[1] - strikes[0] if len(strikes) > 1 else 1.0
+
+
+def generate_all_candidates(chain: OptionChain, max_iron_condor_combos: int = 300) -> list[Candidate]:
+    return [
+        *bull_put_spreads(chain),
+        *bear_call_spreads(chain),
+        *iron_condors(chain, max_combos=max_iron_condor_combos),
+        *iron_flies(chain),
+        *ratio_spreads(chain),
+    ]
