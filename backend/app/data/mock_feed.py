@@ -156,8 +156,12 @@ def _make_leg_quote(
     g = bs_greeks(spot, strike, t, RISK_FREE_RATE, iv, option_type, q)
 
     # OI/volume peak near ATM and decay with distance; add noise for realism.
+    # Scaled to real NIFTY weekly OI order-of-magnitude (peak ATM strikes
+    # typically run in the low hundreds of thousands of lots, not millions —
+    # an earlier 10x-too-large default here was quietly inflating GEX and
+    # other OI-derived figures well past plausible real-world magnitudes).
     distance_decay = math.exp(-0.15 * strike_offset**2)
-    base_oi = int(rng.uniform(0.4, 1.0) * 3_000_000 * distance_decay) + int(rng.integers(0, 50_000))
+    base_oi = int(rng.uniform(0.4, 1.0) * 300_000 * distance_decay) + int(rng.integers(0, 5_000))
     oi_change = int(rng.normal(0, base_oi * 0.08 + 1))
     volume = int(base_oi * rng.uniform(0.05, 0.35))
 
