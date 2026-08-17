@@ -60,8 +60,17 @@ export default function ResearchPage() {
 
       {intraday && <IntradayPriceChart data={intraday} />}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatTile label="Spot" value={chain ? chain.spot.toFixed(2) : "—"} />
+        <StatTile
+          label="Expiry"
+          value={
+            chain
+              ? new Date(chain.expiry).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short" })
+              : "—"
+          }
+          sub={chain ? chain.expiry : undefined}
+        />
         <StatTile label="Max Pain" value={maxPain ? maxPain.max_pain_strike.toFixed(0) : "—"} />
         <StatTile
           label="PCR (OI)"
