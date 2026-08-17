@@ -19,7 +19,9 @@ export default function StrategyResults({ symbol, results }: { symbol: string; r
   if (results.length === 0) {
     return (
       <div className="card text-sm text-muted">
-        No strategies matched your constraints. Try relaxing the PoP, yield, or margin cap.
+        No strategies matched your constraints. Try relaxing the min probability of profit, max loss cap
+        (often the binding one — a spread narrower than one strike step already risks more than a small cap
+        allows), target yield, or margin cap.
       </div>
     );
   }
