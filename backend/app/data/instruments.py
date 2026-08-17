@@ -103,33 +103,39 @@ class Instrument:
         return time(23, 30) if self.is_commodity else time(15, 30)
 
 
+# base_spot below is a static illustrative anchor for the mock feed's random
+# walk (see mock_feed.generate_option_chain) — it is NOT live and never
+# updates itself; it just sits at whatever value was last set here. Last
+# refreshed to roughly match real levels on 2026-08-17. It will drift stale
+# again as the real market moves — there is no substitute here for actually
+# switching MARKET_DATA_PROVIDER=kite if you need numbers that track reality.
 INDICES: dict[str, Instrument] = {
     "NIFTY": Instrument(
-        "NIFTY", "Nifty 50", True, 75, 50, 24800.0, 0.12, "NSE",
+        "NIFTY", "Nifty 50", True, 75, 50, 24500.0, 0.12, "NSE",
         kite_underlying_name="NIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY 50",
         expiry_cadence="weekly", expiry_weekday=1,  # Tuesday — the only NSE index that still gets weekly expiry
     ),
     "BANKNIFTY": Instrument(
-        "BANKNIFTY", "Bank Nifty", True, 35, 100, 51500.0, 0.14, "NSE",
+        "BANKNIFTY", "Bank Nifty", True, 35, 100, 57300.0, 0.14, "NSE",
         kite_underlying_name="BANKNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY BANK",
         expiry_cadence="monthly", expiry_weekday=1,  # weekly discontinued Nov 2024; last-Tuesday monthly since
     ),
     "FINNIFTY": Instrument(
-        "FINNIFTY", "Fin Nifty", True, 65, 50, 23400.0, 0.13, "NSE",
+        "FINNIFTY", "Fin Nifty", True, 65, 50, 23700.0, 0.13, "NSE",
         kite_underlying_name="FINNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY FIN SERVICE",
         expiry_cadence="monthly", expiry_weekday=1,
     ),
     "MIDCPNIFTY": Instrument(
-        "MIDCPNIFTY", "Midcap Nifty", True, 140, 25, 12600.0, 0.16, "NSE",
+        "MIDCPNIFTY", "Midcap Nifty", True, 140, 25, 14900.0, 0.16, "NSE",
         kite_underlying_name="MIDCPNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY MID SELECT",
         expiry_cadence="monthly", expiry_weekday=1,
     ),
     "SENSEX": Instrument(
-        "SENSEX", "Sensex", True, 20, 100, 81200.0, 0.13, "BSE",
+        "SENSEX", "Sensex", True, 20, 100, 78100.0, 0.13, "BSE",
         kite_underlying_name="SENSEX", kite_options_exchange="BFO",
         kite_spot_exchange="BSE", kite_spot_tradingsymbol="SENSEX",
         expiry_cadence="weekly", expiry_weekday=3,  # Thursday — BSE's one weekly-expiry index
@@ -177,13 +183,13 @@ STOCKS: dict[str, Instrument] = {
 # futures contract per options expiry (see kite_feed.py's futures lookup).
 COMMODITIES: dict[str, Instrument] = {
     "CRUDEOIL": Instrument(
-        "CRUDEOIL", "Crude Oil", False, 100, 50, 6200.0, 0.35, "MCX",
+        "CRUDEOIL", "Crude Oil", False, 100, 50, 7800.0, 0.35, "MCX",
         is_commodity=True, expiry_cadence="monthly",  # expiry_weekday unused: MCX's calendar isn't a fixed weekday
         kite_underlying_name="CRUDEOIL", kite_options_exchange="MCX",
         kite_spot_exchange="MCX", kite_spot_tradingsymbol="",
     ),
     "GOLD": Instrument(
-        "GOLD", "Gold", False, 100, 100, 72000.0, 0.14, "MCX",
+        "GOLD", "Gold", False, 100, 100, 153000.0, 0.14, "MCX",
         is_commodity=True, expiry_cadence="monthly",
         kite_underlying_name="GOLD", kite_options_exchange="MCX",
         kite_spot_exchange="MCX", kite_spot_tradingsymbol="",
