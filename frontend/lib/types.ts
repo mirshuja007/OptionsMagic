@@ -43,6 +43,16 @@ export interface Instrument {
   exchange: string;
 }
 
+export interface IntradayPoint {
+  timestamp: string;
+  spot: number;
+}
+
+export interface IntradayResponse {
+  symbol: string;
+  points: IntradayPoint[];
+}
+
 export interface MaxPainResponse {
   symbol: string;
   spot: number;

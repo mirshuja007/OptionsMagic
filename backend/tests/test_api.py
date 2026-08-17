@@ -38,9 +38,24 @@ def test_option_chain_unknown_symbol_404():
 
 
 def test_analytics_endpoints():
-    for path in ["max-pain", "pcr", "oi", "volatility", "straddle"]:
+    for path in ["max-pain", "pcr", "oi", "volatility", "straddle", "intraday"]:
         r = client.get(f"/api/analytics/{path}/NIFTY")
         assert r.status_code == 200, path
+
+
+def test_intraday_endpoint_returns_a_minute_series():
+    r = client.get("/api/analytics/intraday/NIFTY")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "NIFTY"
+    assert len(body["points"]) > 300  # ~375 for a full NSE session
+    assert all("timestamp" in p and "spot" in p for p in body["points"])
+    assert all(p["spot"] > 0 for p in body["points"])
+
+
+def test_intraday_endpoint_unknown_symbol_404():
+    r = client.get("/api/analytics/intraday/NOTASYMBOL")
+    assert r.status_code == 404
 
 
 def test_strategy_discover_endpoint():

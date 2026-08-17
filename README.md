@@ -41,9 +41,9 @@ frontend/  Next.js (App Router) + TypeScript + Tailwind — Research & Strategy 
 
 ### Frontend (`frontend/`)
 
-- `/research` — Research Mode: TradingView chart, spot/Max Pain/PCR/ATM IV tiles,
-  Smart OI & GEX, multi-strike OI chart, IV skew chart, straddle decay chart,
-  full option chain table with Greeks.
+- `/research` — Research Mode: intraday spot-price chart, spot/Max Pain/PCR/ATM
+  IV tiles, Smart OI & GEX, multi-strike OI chart, IV skew chart, straddle
+  decay chart, full option chain table with Greeks.
 - `/strategy` — Strategy Command Mode: constraint input form (PoP, yield, max
   profit/loss, margin cap) → calls the solver → ranked strategy cards with
   legs, margin breakdown, payoff, PoP, EV, Sharpe, and a "Verify Real Margin
@@ -209,7 +209,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 106 tests
+pytest -q   # 108 tests
 ```
 
 ### Frontend
@@ -229,6 +229,7 @@ Open `http://localhost:3000` (redirects to `/research`).
 | GET | `/api/instruments` | Supported indices, commodities (MCX), & F&O stocks |
 | GET | `/api/data-provider` | Which feed is active — `mock` or `kite` |
 | GET | `/api/option-chain/{symbol}` | Option chain (mock or live Kite, per `MARKET_DATA_PROVIDER`) |
+| GET | `/api/analytics/intraday/{symbol}` | Today's minute-by-minute spot price (powers the Research Mode chart) |
 | GET | `/api/analytics/max-pain/{symbol}` | Max Pain strike & payout curve |
 | GET | `/api/analytics/pcr/{symbol}` | Put-Call Ratio (OI & volume) |
 | GET | `/api/analytics/oi/{symbol}` | Per-strike OI, buildup, Smart OI, GEX |

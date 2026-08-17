@@ -20,6 +20,8 @@ from app.api.schemas import (
     ExecutionRequest,
     GreeksOut,
     InstrumentOut,
+    IntradayPointOut,
+    IntradayResponse,
     LegQuoteOut,
     LiveMarginRequest,
     LiveMarginResponse,
@@ -34,7 +36,7 @@ from app.api.schemas import (
 )
 from app.backtest.replay import replay_strategy
 from app.broker.paper import PaperBroker
-from app.data.feed import generate_option_chain, get_active_provider
+from app.data.feed import generate_minute_series, generate_option_chain, get_active_provider
 from app.data.instruments import ALL_INSTRUMENTS, get_instrument
 from app.data.kite_client import KiteAuthError
 from app.data.kite_feed import KiteFeedError
@@ -100,6 +102,24 @@ def option_chain(symbol: str, expiry: date | None = None, num_strikes: int = 21)
         time_to_expiry_years=chain.time_to_expiry_years, risk_free_rate=chain.risk_free_rate,
         rows=[_chain_row_out(r) for r in chain.rows],
     )
+
+
+@router.get("/analytics/intraday/{symbol}", response_model=IntradayResponse)
+def intraday(symbol: str):
+    """Today's minute-by-minute underlying price — the same series the
+    backtest replay engine runs against. Replaces a third-party charting
+    widget with data this platform actually owns and can guarantee renders.
+    """
+    symbol = symbol.upper()
+    try:
+        series = generate_minute_series(symbol)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KiteAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except KiteFeedError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return IntradayResponse(symbol=symbol, points=[IntradayPointOut(timestamp=t, spot=p) for t, p in series])
 
 
 @router.get("/analytics/max-pain/{symbol}")

@@ -47,6 +47,16 @@ class OptionChainOut(BaseModel):
     rows: list[ChainRowOut]
 
 
+class IntradayPointOut(BaseModel):
+    timestamp: datetime
+    spot: float
+
+
+class IntradayResponse(BaseModel):
+    symbol: str
+    points: list[IntradayPointOut]
+
+
 class InstrumentOut(BaseModel):
     symbol: str
     display_name: str

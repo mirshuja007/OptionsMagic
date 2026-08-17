@@ -2,19 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Instrument, MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
+import type { IntradayResponse, MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
 import SymbolSelector from "@/components/SymbolSelector";
 import StatTile from "@/components/StatTile";
 import OptionChainTable from "@/components/OptionChainTable";
 import OiChart from "@/components/OiChart";
 import IvSkewChart from "@/components/IvSkewChart";
 import StraddleDecayChart from "@/components/StraddleDecayChart";
-import TradingViewWidget from "@/components/TradingViewWidget";
+import IntradayPriceChart from "@/components/IntradayPriceChart";
 
 export default function ResearchPage() {
   const [symbol, setSymbol] = useState("NIFTY");
-  const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [chain, setChain] = useState<OptionChain | null>(null);
+  const [intraday, setIntraday] = useState<IntradayResponse | null>(null);
   const [maxPain, setMaxPain] = useState<MaxPainResponse | null>(null);
   const [pcr, setPcr] = useState<PcrResponse | null>(null);
   const [oi, setOi] = useState<OiResponse | null>(null);
@@ -23,23 +23,19 @@ export default function ResearchPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.instruments().then(setInstruments).catch(() => undefined);
-  }, []);
-
-  const activeExchange = instruments.find((i) => i.symbol === symbol)?.exchange ?? "NSE";
-
-  useEffect(() => {
     setError(null);
     Promise.all([
       api.optionChain(symbol),
+      api.intraday(symbol),
       api.maxPain(symbol),
       api.pcr(symbol),
       api.oi(symbol),
       api.volatility(symbol),
       api.straddle(symbol),
     ])
-      .then(([c, mp, p, o, v, s]) => {
+      .then(([c, i, mp, p, o, v, s]) => {
         setChain(c);
+        setIntraday(i);
         setMaxPain(mp);
         setPcr(p);
         setOi(o);
@@ -62,7 +58,7 @@ export default function ResearchPage() {
         </div>
       )}
 
-      <TradingViewWidget symbol={symbol} exchange={activeExchange} />
+      {intraday && <IntradayPriceChart data={intraday} />}
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile label="Spot" value={chain ? chain.spot.toFixed(2) : "—"} />

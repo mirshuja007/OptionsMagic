@@ -1,6 +1,7 @@
 import type {
   DiscoverResponse,
   Instrument,
+  IntradayResponse,
   LegOut,
   LiveMarginResponse,
   MaxPainResponse,
@@ -38,6 +39,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 export const api = {
   instruments: () => getJson<Instrument[]>("/instruments"),
   optionChain: (symbol: string) => getJson<OptionChain>(`/option-chain/${symbol}`),
+  intraday: (symbol: string) => getJson<IntradayResponse>(`/analytics/intraday/${symbol}`),
   maxPain: (symbol: string) => getJson<MaxPainResponse>(`/analytics/max-pain/${symbol}`),
   pcr: (symbol: string) => getJson<PcrResponse>(`/analytics/pcr/${symbol}`),
   oi: (symbol: string) => getJson<OiResponse>(`/analytics/oi/${symbol}`),
