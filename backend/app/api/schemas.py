@@ -50,11 +50,18 @@ class OptionChainOut(BaseModel):
 class IntradayPointOut(BaseModel):
     timestamp: datetime
     spot: float
+    volume: int
+    vwap: float
 
 
 class IntradayResponse(BaseModel):
     symbol: str
     points: list[IntradayPointOut]
+
+
+class ExpiriesResponse(BaseModel):
+    symbol: str
+    expiries: list[date]
 
 
 class InstrumentOut(BaseModel):

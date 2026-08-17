@@ -15,7 +15,7 @@ export default function StrategyPage() {
     setLoading(true);
     setError(null);
     api
-      .discoverStrategies(values.symbol, values.constraints)
+      .discoverStrategies(values.symbol, values.constraints, values.expiry)
       .then(setResponse)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));

@@ -46,11 +46,18 @@ export interface Instrument {
 export interface IntradayPoint {
   timestamp: string;
   spot: number;
+  volume: number;
+  vwap: number;
 }
 
 export interface IntradayResponse {
   symbol: string;
   points: IntradayPoint[];
+}
+
+export interface ExpiriesResponse {
+  symbol: string;
+  expiries: string[];
 }
 
 export interface MaxPainResponse {

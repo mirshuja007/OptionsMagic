@@ -202,7 +202,11 @@ def test_generate_option_chain_raises_kite_feed_error_on_unmapped_underlying(mon
 def test_generate_minute_series_end_to_end(monkeypatch):
     session_date = date.today()
     candles = [
-        {"date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i), "close": 24800.0 + i}
+        {
+            "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i),
+            "close": 24800.0 + i,
+            "volume": 1000 + i,
+        }
         for i in range(5)
     ]
     fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
@@ -213,7 +217,34 @@ def test_generate_minute_series_end_to_end(monkeypatch):
 
     assert len(series) == 5
     assert series[0][1] == 24800.0
+    assert series[0][2] == 1000
     assert series[0][0].tzinfo is None
+
+
+def test_generate_minute_series_defaults_volume_to_zero_when_absent(monkeypatch):
+    session_date = date.today()
+    candles = [
+        {"date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15), "close": 24800.0}
+    ]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    series = kite_feed.generate_minute_series("NIFTY", session_date=session_date, minutes=1)
+    assert series[0][2] == 0
+
+
+def test_available_expiries_returns_sorted_unique_listed_dates(monkeypatch):
+    nfo_rows, _, _ = _build_fake_chain_fixtures()
+    later_expiry = date.today() + timedelta(days=11)
+    nfo_rows.append(_instrument_row(24800, "CE", later_expiry, "NIFTY_24800_CE_2"))
+    fake = FakeKite(nfo_rows=nfo_rows, spot_ltp=24800.0, quote_map={})
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    expiries = kite_feed.available_expiries("NIFTY")
+    assert expiries == sorted(expiries)
+    assert later_expiry in expiries
 
 
 # ---------------------------------------------------------------------------

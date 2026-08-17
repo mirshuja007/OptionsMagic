@@ -58,3 +58,11 @@ def generate_minute_series(
     minutes: int = 375,
 ):
     return _module().generate_minute_series(symbol, session_date=session_date, minutes=minutes)
+
+
+def available_expiries(symbol: str) -> list[date]:
+    """Expiry dates the UI's expiry selector can offer. Mock: a plausible
+    illustrative cadence (see mock_feed.available_expiries). Kite: the real
+    dates currently listed on the exchange.
+    """
+    return _module().available_expiries(symbol)

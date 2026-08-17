@@ -53,6 +53,40 @@ def test_intraday_endpoint_returns_a_minute_series():
     assert all(p["spot"] > 0 for p in body["points"])
 
 
+def test_intraday_endpoint_includes_volume_and_vwap():
+    r = client.get("/api/analytics/intraday/NIFTY")
+    assert r.status_code == 200
+    points = r.json()["points"]
+    assert all(p["volume"] >= 0 for p in points)
+    assert all(p["vwap"] > 0 for p in points)
+    # VWAP after the full session should sit within the session's price range.
+    prices = [p["spot"] for p in points]
+    assert min(prices) <= points[-1]["vwap"] <= max(prices)
+
+
+def test_expiries_endpoint_returns_ascending_future_dates():
+    r = client.get("/api/expiries/NIFTY")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "NIFTY"
+    dates = body["expiries"]
+    assert len(dates) > 0
+    assert dates == sorted(dates)
+
+
+def test_expiries_endpoint_unknown_symbol_404():
+    r = client.get("/api/expiries/NOTASYMBOL")
+    assert r.status_code == 404
+
+
+def test_option_chain_accepts_a_specific_expiry_from_the_expiries_list():
+    expiries = client.get("/api/expiries/NIFTY").json()["expiries"]
+    target = expiries[1]
+    r = client.get(f"/api/option-chain/NIFTY?expiry={target}")
+    assert r.status_code == 200
+    assert r.json()["expiry"] == target
+
+
 def test_intraday_endpoint_unknown_symbol_404():
     r = client.get("/api/analytics/intraday/NOTASYMBOL")
     assert r.status_code == 404

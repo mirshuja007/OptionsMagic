@@ -21,6 +21,7 @@ __all__ = [
     "LegQuote",
     "OptionChain",
     "RISK_FREE_RATE",
+    "available_expiries",
     "generate_minute_series",
     "generate_option_chain",
     "next_weekly_expiry",
@@ -73,6 +74,50 @@ def _default_expiry(instrument: Instrument, today: date) -> date:
     return next_weekly_expiry(today, instrument.expiry_weekday)
 
 
+def available_expiries(symbol: str, today: date | None = None, count: int = 6) -> list[date]:
+    """Illustrative upcoming expiries for the UI's expiry selector, following
+    the same cadence assumptions as ``_default_expiry``. When
+    MARKET_DATA_PROVIDER=kite, ``kite_feed.available_expiries`` returns the
+    real listed dates instead — this is only a plausible stand-in for the
+    simulated feed.
+    """
+    instrument = get_instrument(symbol)
+    today = today or date.today()
+
+    if instrument.is_commodity:
+        # No fixed weekday to project from (see _default_expiry); step by
+        # ~30 days, anchored on the same illustrative +20-day offset.
+        return [today + timedelta(days=20 + 30 * i) for i in range(count)]
+
+    if instrument.expiry_cadence == "monthly":
+        first = _next_monthly_expiry(today, instrument.expiry_weekday)
+        expiries = [first]
+        year, month = first.year, first.month
+        for _ in range(count - 1):
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+            expiries.append(_last_weekday_of_month(year, month, instrument.expiry_weekday))
+        return expiries
+
+    expiries = []
+    cursor = today
+    for _ in range(count):
+        cursor = next_weekly_expiry(cursor, instrument.expiry_weekday)
+        expiries.append(cursor)
+    return expiries
+
+
+def _intraday_volume_curve(rng: np.random.Generator, minutes: int, base: int = 4_000) -> list[int]:
+    """A rough U-shaped intraday volume profile — heavier near the open and
+    close, quieter mid-session, the well-documented real-market pattern.
+    """
+    volumes = []
+    for i in range(minutes):
+        frac = i / max(minutes - 1, 1)
+        u_shape = 0.5 + 1.5 * (frac - 0.5) ** 2 * 4  # ~2.0 at edges, ~0.5 at midday
+        volumes.append(max(int(rng.uniform(0.6, 1.4) * u_shape * base), 0))
+    return volumes
+
+
 def _iv_smile(moneyness_log: float, base_iv: float) -> float:
     """A volatility skew/smirk: OTM puts (negative log-moneyness) trade richer
     than OTM calls, a well-documented feature of Indian index options.
@@ -98,15 +143,24 @@ def generate_option_chain(
     seed: int | None = None,
 ) -> OptionChain:
     instrument = get_instrument(symbol)
-    rng = np.random.default_rng(_seed_for(symbol, seed))
-
     as_of = as_of or datetime.now()
     expiry = expiry or _default_expiry(instrument, as_of.date())
     expiry_dt = datetime.combine(expiry, instrument.session_end)
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)
     q = RISK_FREE_RATE if instrument.pricing_carry_rate_equals_risk_free else 0.0
 
-    spot = spot_override if spot_override is not None else instrument.base_spot * (1 + rng.normal(0, 0.004))
+    # Spot is a property of the underlying, not of which expiry's chain
+    # you're viewing — seed it off the symbol alone so it stays identical
+    # across expiry selections, same as a real quote would.
+    spot_rng = np.random.default_rng(_seed_for(symbol, seed))
+    spot = spot_override if spot_override is not None else instrument.base_spot * (1 + spot_rng.normal(0, 0.004))
+
+    # OI/premium noise, in contrast, genuinely differs by expiry in real
+    # markets (a weekly build-up looks nothing like a far-dated monthly's) —
+    # seed that stream off symbol+expiry so switching expiries in the UI
+    # shows a distinct (not just re-priced) chain.
+    chain_rng = np.random.default_rng(_seed_for(f"{symbol}:{expiry.isoformat()}", seed))
+
     step = instrument.strike_step
     atm_strike = round(spot / step) * step
     half = num_strikes // 2
@@ -121,8 +175,8 @@ def generate_option_chain(
         call_iv = _iv_smile(log_moneyness, instrument.base_iv)
         put_iv = _iv_smile(log_moneyness, instrument.base_iv)
 
-        call = _make_leg_quote(spot, strike, t, OptionType.CALL, call_iv, i, rng, q)
-        put = _make_leg_quote(spot, strike, t, OptionType.PUT, put_iv, i, rng, q)
+        call = _make_leg_quote(spot, strike, t, OptionType.CALL, call_iv, i, chain_rng, q)
+        put = _make_leg_quote(spot, strike, t, OptionType.PUT, put_iv, i, chain_rng, q)
         rows.append(ChainRow(strike=strike, call=call, put=put))
 
     return OptionChain(
@@ -183,9 +237,11 @@ def generate_minute_series(
     session_date: date | None = None,
     minutes: int = 375,  # NSE cash session length, 09:15-15:30
     seed: int | None = None,
-) -> list[tuple[datetime, float]]:
-    """Simulated minute-by-minute underlying spot path for a trading session,
-    used by the backtest replay engine. GBM with intraday vol.
+) -> list[tuple[datetime, float, int]]:
+    """Simulated minute-by-minute (underlying spot, volume) path for a
+    trading session, used by the backtest replay engine and the Research
+    Mode intraday/VWAP chart. GBM with intraday vol; volume follows a
+    U-shaped intraday profile.
     """
     instrument = get_instrument(symbol)
     rng = np.random.default_rng(_seed_for(symbol + "-minute", seed))
@@ -199,4 +255,5 @@ def generate_minute_series(
         shock = rng.normal(-0.5 * sigma**2 * dt, sigma * math.sqrt(dt))
         prices.append(prices[-1] * math.exp(shock))
 
-    return [(start + timedelta(minutes=i), p) for i, p in enumerate(prices)]
+    volumes = _intraday_volume_curve(rng, minutes)
+    return [(start + timedelta(minutes=i), p, v) for i, (p, v) in enumerate(zip(prices, volumes))]

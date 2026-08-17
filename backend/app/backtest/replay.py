@@ -60,7 +60,7 @@ def replay_strategy(
     triggered_action: RiskAction | None = None
     triggered_at: datetime | None = None
 
-    for timestamp, spot in minute_series:
+    for timestamp, spot, _volume in minute_series:
         t = max((expiry_dt - timestamp).total_seconds() / (365.0 * 24 * 3600), 1e-6)
         pnl = mark_to_market(legs, spot, t, risk_free_rate, instrument.lot_size)
         g = portfolio_greeks(legs, spot, t, risk_free_rate, instrument.lot_size)

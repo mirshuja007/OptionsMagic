@@ -1,5 +1,6 @@
 import type {
   DiscoverResponse,
+  ExpiriesResponse,
   Instrument,
   IntradayResponse,
   LegOut,
@@ -14,6 +15,10 @@ import type {
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+
+function withExpiry(path: string, expiry?: string): string {
+  return expiry ? `${path}?expiry=${expiry}` : path;
+}
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
@@ -38,15 +43,20 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   instruments: () => getJson<Instrument[]>("/instruments"),
-  optionChain: (symbol: string) => getJson<OptionChain>(`/option-chain/${symbol}`),
+  expiries: (symbol: string) => getJson<ExpiriesResponse>(`/expiries/${symbol}`),
+  optionChain: (symbol: string, expiry?: string) =>
+    getJson<OptionChain>(withExpiry(`/option-chain/${symbol}`, expiry)),
   intraday: (symbol: string) => getJson<IntradayResponse>(`/analytics/intraday/${symbol}`),
-  maxPain: (symbol: string) => getJson<MaxPainResponse>(`/analytics/max-pain/${symbol}`),
-  pcr: (symbol: string) => getJson<PcrResponse>(`/analytics/pcr/${symbol}`),
-  oi: (symbol: string) => getJson<OiResponse>(`/analytics/oi/${symbol}`),
-  volatility: (symbol: string) => getJson<VolatilityResponse>(`/analytics/volatility/${symbol}`),
-  straddle: (symbol: string) => getJson<StraddleResponse>(`/analytics/straddle/${symbol}`),
-  discoverStrategies: (symbol: string, constraints: StrategyConstraintsIn) =>
-    postJson<DiscoverResponse>("/strategy/discover", { symbol, constraints }),
+  maxPain: (symbol: string, expiry?: string) =>
+    getJson<MaxPainResponse>(withExpiry(`/analytics/max-pain/${symbol}`, expiry)),
+  pcr: (symbol: string, expiry?: string) => getJson<PcrResponse>(withExpiry(`/analytics/pcr/${symbol}`, expiry)),
+  oi: (symbol: string, expiry?: string) => getJson<OiResponse>(withExpiry(`/analytics/oi/${symbol}`, expiry)),
+  volatility: (symbol: string, expiry?: string) =>
+    getJson<VolatilityResponse>(withExpiry(`/analytics/volatility/${symbol}`, expiry)),
+  straddle: (symbol: string, expiry?: string) =>
+    getJson<StraddleResponse>(withExpiry(`/analytics/straddle/${symbol}`, expiry)),
+  discoverStrategies: (symbol: string, constraints: StrategyConstraintsIn, expiry?: string) =>
+    postJson<DiscoverResponse>("/strategy/discover", { symbol, constraints, expiry: expiry || undefined }),
   liveMargin: (symbol: string, legs: LegOut[]) =>
     postJson<LiveMarginResponse>("/margin/live", {
       symbol,

@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import SymbolSelector from "@/components/SymbolSelector";
+import ExpirySelector from "@/components/ExpirySelector";
 import type { StrategyConstraintsIn } from "@/lib/types";
 
 export interface StrategyFormValues {
   symbol: string;
+  expiry: string;
   constraints: StrategyConstraintsIn;
 }
 
@@ -17,16 +19,23 @@ export default function StrategyForm({
   loading: boolean;
 }) {
   const [symbol, setSymbol] = useState("NIFTY");
+  const [expiry, setExpiry] = useState("");
   const [minPop, setMinPop] = useState(80);
   const [minYield, setMinYield] = useState(1.0);
   const [maxProfit, setMaxProfit] = useState(5000);
   const [maxLoss, setMaxLoss] = useState(3000);
   const [marginCap, setMarginCap] = useState(500000);
 
+  function handleSymbolChange(next: string) {
+    setSymbol(next);
+    setExpiry(""); // ExpirySelector will populate this with the new symbol's nearest expiry
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
     onSubmit({
       symbol,
+      expiry,
       constraints: {
         min_probability_of_profit: minPop / 100,
         min_yield_pct: minYield / 100,
@@ -39,9 +48,12 @@ export default function StrategyForm({
 
   return (
     <form onSubmit={submit} className="card flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-muted">Constraint Inputs</h2>
-        <SymbolSelector value={symbol} onChange={setSymbol} />
+        <div className="flex items-center gap-2">
+          <SymbolSelector value={symbol} onChange={handleSymbolChange} />
+          <ExpirySelector symbol={symbol} value={expiry} onChange={setExpiry} />
+        </div>
       </div>
 
       <Field label="Minimum Probability of Profit (%)" value={minPop} onChange={setMinPop} min={1} max={99} />
@@ -52,7 +64,7 @@ export default function StrategyForm({
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !expiry}
         className="mt-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-black transition hover:opacity-90 disabled:opacity-50"
       >
         {loading ? "Solving…" : "Discover Strategies"}

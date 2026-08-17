@@ -128,6 +128,15 @@ What's still a documented stand-in even with `MARKET_DATA_PROVIDER=kite`:
   daily OI snapshot cache this doesn't have yet.
 - Backtest replay holds each leg's IV fixed at entry (no historical IV
   surface), regardless of which price feed is active.
+- **VWAP** (shown on the Research Mode intraday chart and stat tile) is
+  computed the same way regardless of feed — cumulative(price × volume) /
+  cumulative(volume) across the session (`app/analytics/vwap.py`) — but the
+  volume feeding it differs: simulated (a U-shaped intraday profile) on
+  `mock`, real per-minute traded volume from Kite's Historical Data API on
+  `kite`.
+- The expiry selector's date list (`GET /api/expiries/{symbol}`) is the real
+  listed set on `kite`; on `mock` it's a plausible cadence-based projection
+  (`mock_feed.available_expiries`), not verified listed dates.
 
 Everything else — Black-Scholes pricing, Greeks, PoP (delta-approx and Monte
 Carlo), the combinatorial strategy generator, the constraint solver, payoff
@@ -209,7 +218,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 108 tests
+pytest -q   # 125 tests
 ```
 
 ### Frontend
@@ -228,14 +237,15 @@ Open `http://localhost:3000` (redirects to `/research`).
 |---|---|---|
 | GET | `/api/instruments` | Supported indices, commodities (MCX), & F&O stocks |
 | GET | `/api/data-provider` | Which feed is active — `mock` or `kite` |
-| GET | `/api/option-chain/{symbol}` | Option chain (mock or live Kite, per `MARKET_DATA_PROVIDER`) |
-| GET | `/api/analytics/intraday/{symbol}` | Today's minute-by-minute spot price (powers the Research Mode chart) |
-| GET | `/api/analytics/max-pain/{symbol}` | Max Pain strike & payout curve |
-| GET | `/api/analytics/pcr/{symbol}` | Put-Call Ratio (OI & volume) |
-| GET | `/api/analytics/oi/{symbol}` | Per-strike OI, buildup, Smart OI, GEX |
-| GET | `/api/analytics/volatility/{symbol}` | IV grid, ATM IV, 25-delta skew |
-| GET | `/api/analytics/straddle/{symbol}` | ATM/multi-strike straddle, decay curve |
-| POST | `/api/strategy/discover` | Run the constraint solver, get top 3 strategies |
+| GET | `/api/expiries/{symbol}` | Expiry dates for the frontend's expiry selector (real listed dates on `kite`, illustrative cadence on `mock`) |
+| GET | `/api/option-chain/{symbol}` | Option chain (mock or live Kite, per `MARKET_DATA_PROVIDER`); accepts `?expiry=YYYY-MM-DD` |
+| GET | `/api/analytics/intraday/{symbol}` | Today's minute-by-minute spot price, volume, and running VWAP (powers the Research Mode chart) |
+| GET | `/api/analytics/max-pain/{symbol}` | Max Pain strike & payout curve; accepts `?expiry=YYYY-MM-DD` |
+| GET | `/api/analytics/pcr/{symbol}` | Put-Call Ratio (OI & volume); accepts `?expiry=YYYY-MM-DD` |
+| GET | `/api/analytics/oi/{symbol}` | Per-strike OI, buildup, Smart OI, GEX; accepts `?expiry=YYYY-MM-DD` |
+| GET | `/api/analytics/volatility/{symbol}` | IV grid, ATM IV, 25-delta skew; accepts `?expiry=YYYY-MM-DD` |
+| GET | `/api/analytics/straddle/{symbol}` | ATM/multi-strike straddle, decay curve; accepts `?expiry=YYYY-MM-DD` |
+| POST | `/api/strategy/discover` | Run the constraint solver, get top 3 strategies; accepts `"expiry"` in the request body |
 | POST | `/api/backtest/run` | Minute-by-minute replay of a leg set |
 | POST | `/api/execution/place-basket` | Paper-fill a multi-leg basket order |
 | POST | `/api/execution/square-off` | Paper-close a basket |

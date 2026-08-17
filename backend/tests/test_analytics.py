@@ -56,7 +56,7 @@ def test_volatility_skew_puts_richer_than_calls_for_index_smirk():
 
 
 def test_realized_volatility_positive_for_a_moving_series():
-    prices = [p for _, p in generate_minute_series("NIFTY", seed=17)]
+    prices = [p for _, p, _ in generate_minute_series("NIFTY", seed=17)]
     hv = realized_volatility(prices)
     assert hv > 0
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { IntradayResponse, MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
 import SymbolSelector from "@/components/SymbolSelector";
+import ExpirySelector from "@/components/ExpirySelector";
 import StatTile from "@/components/StatTile";
 import OptionChainTable from "@/components/OptionChainTable";
 import OiChart from "@/components/OiChart";
@@ -13,6 +14,7 @@ import IntradayPriceChart from "@/components/IntradayPriceChart";
 
 export default function ResearchPage() {
   const [symbol, setSymbol] = useState("NIFTY");
+  const [expiry, setExpiry] = useState("");
   const [chain, setChain] = useState<OptionChain | null>(null);
   const [intraday, setIntraday] = useState<IntradayResponse | null>(null);
   const [maxPain, setMaxPain] = useState<MaxPainResponse | null>(null);
@@ -22,16 +24,22 @@ export default function ResearchPage() {
   const [straddle, setStraddle] = useState<StraddleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  function handleSymbolChange(next: string) {
+    setSymbol(next);
+    setExpiry(""); // ExpirySelector will populate this with the new symbol's nearest expiry
+  }
+
   useEffect(() => {
+    if (!expiry) return; // wait for ExpirySelector to resolve a default for this symbol
     setError(null);
     Promise.all([
-      api.optionChain(symbol),
+      api.optionChain(symbol, expiry),
       api.intraday(symbol),
-      api.maxPain(symbol),
-      api.pcr(symbol),
-      api.oi(symbol),
-      api.volatility(symbol),
-      api.straddle(symbol),
+      api.maxPain(symbol, expiry),
+      api.pcr(symbol, expiry),
+      api.oi(symbol, expiry),
+      api.volatility(symbol, expiry),
+      api.straddle(symbol, expiry),
     ])
       .then(([c, i, mp, p, o, v, s]) => {
         setChain(c);
@@ -43,13 +51,16 @@ export default function ResearchPage() {
         setStraddle(s);
       })
       .catch((e) => setError(String(e)));
-  }, [symbol]);
+  }, [symbol, expiry]);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Research Mode</h1>
-        <SymbolSelector value={symbol} onChange={setSymbol} />
+        <div className="flex items-center gap-3">
+          <ExpirySelector symbol={symbol} value={expiry} onChange={setExpiry} />
+          <SymbolSelector value={symbol} onChange={handleSymbolChange} />
+        </div>
       </div>
 
       {error && (
@@ -80,7 +91,7 @@ export default function ResearchPage() {
         <StatTile label="ATM IV" value={vol ? `${(vol.atm_iv * 100).toFixed(1)}%` : "—"} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile
           label="Smart OI Bias"
           value={oi ? oi.smart_oi.bias : "—"}
@@ -93,6 +104,22 @@ export default function ResearchPage() {
           sub={oi ? `net ${(oi.gamma_exposure.net_gex / 1e7).toFixed(2)} Cr` : undefined}
         />
         <StatTile label="Volatility Skew (25d)" value={vol ? vol.skew.skew.toFixed(4) : "—"} />
+        <StatTile
+          label="VWAP"
+          value={intraday && intraday.points.length > 0 ? intraday.points[intraday.points.length - 1].vwap.toFixed(2) : "—"}
+          tone={
+            intraday && intraday.points.length > 0
+              ? intraday.points[intraday.points.length - 1].spot >= intraday.points[intraday.points.length - 1].vwap
+                ? "positive"
+                : "negative"
+              : "neutral"
+          }
+          sub={
+            intraday && intraday.points.length > 0
+              ? `spot ${intraday.points[intraday.points.length - 1].spot >= intraday.points[intraday.points.length - 1].vwap ? "above" : "below"}`
+              : undefined
+          }
+        />
       </div>
 
       {oi && <OiChart data={oi.by_strike} />}

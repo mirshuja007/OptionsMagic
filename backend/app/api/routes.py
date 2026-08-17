@@ -9,6 +9,7 @@ from app.analytics import oi as oi_mod
 from app.analytics import pcr as pcr_mod
 from app.analytics import straddle as straddle_mod
 from app.analytics import volatility as volatility_mod
+from app.analytics import vwap as vwap_mod
 from app.api.converters import leg_in_to_domain, leg_to_out
 from app.api.schemas import (
     BacktestRequest,
@@ -18,6 +19,7 @@ from app.api.schemas import (
     DiscoverRequest,
     DiscoverResponse,
     ExecutionRequest,
+    ExpiriesResponse,
     GreeksOut,
     InstrumentOut,
     IntradayPointOut,
@@ -36,7 +38,7 @@ from app.api.schemas import (
 )
 from app.backtest.replay import replay_strategy
 from app.broker.paper import PaperBroker
-from app.data.feed import generate_minute_series, generate_option_chain, get_active_provider
+from app.data.feed import available_expiries, generate_minute_series, generate_option_chain, get_active_provider
 from app.data.instruments import ALL_INSTRUMENTS, get_instrument
 from app.data.kite_client import KiteAuthError
 from app.data.kite_feed import KiteFeedError
@@ -94,6 +96,24 @@ def _get_chain(symbol: str, expiry: date | None = None):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.get("/expiries/{symbol}", response_model=ExpiriesResponse)
+def expiries(symbol: str):
+    """Expiry dates the frontend's expiry selector offers for this symbol —
+    real listed dates when MARKET_DATA_PROVIDER=kite, an illustrative
+    cadence-based list otherwise.
+    """
+    symbol = symbol.upper()
+    try:
+        dates = available_expiries(symbol)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KiteAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except KiteFeedError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ExpiriesResponse(symbol=symbol, expiries=dates)
+
+
 @router.get("/option-chain/{symbol}", response_model=OptionChainOut)
 def option_chain(symbol: str, expiry: date | None = None, num_strikes: int = 21):
     chain = _get_chain(symbol, expiry)
@@ -119,7 +139,14 @@ def intraday(symbol: str):
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except KiteFeedError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return IntradayResponse(symbol=symbol, points=[IntradayPointOut(timestamp=t, spot=p) for t, p in series])
+    vwaps = vwap_mod.vwap_series([(p, v) for _, p, v in series])
+    return IntradayResponse(
+        symbol=symbol,
+        points=[
+            IntradayPointOut(timestamp=t, spot=p, volume=v, vwap=round(vw, 2))
+            for (t, p, v), vw in zip(series, vwaps)
+        ],
+    )
 
 
 @router.get("/analytics/max-pain/{symbol}")

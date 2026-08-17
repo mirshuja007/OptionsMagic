@@ -280,9 +280,9 @@ def generate_minute_series(
     symbol: str,
     session_date: date | None = None,
     minutes: int = 375,
-) -> list[tuple[datetime, float]]:
-    """Real minute-by-minute underlying close prices for a past session, via
-    Kite's Historical Data API (a separate paid add-on — see README).
+) -> list[tuple[datetime, float, int]]:
+    """Real minute-by-minute (underlying close, volume) for a past session,
+    via Kite's Historical Data API (a separate paid add-on — see README).
     """
     instrument = get_instrument(symbol)
     kite = get_kite_client()
@@ -317,4 +317,4 @@ def generate_minute_series(
     if not candles:
         raise KiteFeedError(f"No historical minute data returned for {symbol} on {session_date}")
 
-    return [(c["date"].replace(tzinfo=None), float(c["close"])) for c in candles[:minutes]]
+    return [(c["date"].replace(tzinfo=None), float(c["close"]), int(c.get("volume") or 0)) for c in candles[:minutes]]
