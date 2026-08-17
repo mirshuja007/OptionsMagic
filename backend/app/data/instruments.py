@@ -105,31 +105,34 @@ class Instrument:
 
 # base_spot below is a static illustrative anchor for the mock feed's random
 # walk (see mock_feed.generate_option_chain) — it is NOT live and never
-# updates itself; it just sits at whatever value was last set here. Last
-# refreshed to roughly match real levels on 2026-08-17. It will drift stale
-# again as the real market moves — there is no substitute here for actually
-# switching MARKET_DATA_PROVIDER=kite if you need numbers that track reality.
+# updates itself; it just sits at whatever value was last set here. NIFTY/
+# BANKNIFTY/FINNIFTY/MIDCPNIFTY refreshed from nseindia.com's own live
+# index quotes on 2026-08-17 15:30 IST close (user-supplied screenshot):
+# NIFTY 50 24,287.65 · NIFTY BANK 57,497.80 · NIFTY FIN SERVICE 26,217.15 ·
+# NIFTY MIDCAP SELECT ~14,948. It will drift stale again as the real market
+# moves — there is no substitute here for actually switching
+# MARKET_DATA_PROVIDER=kite if you need numbers that track reality.
 INDICES: dict[str, Instrument] = {
     "NIFTY": Instrument(
-        "NIFTY", "Nifty 50", True, 75, 50, 24500.0, 0.12, "NSE",
+        "NIFTY", "Nifty 50", True, 75, 50, 24287.65, 0.12, "NSE",
         kite_underlying_name="NIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY 50",
         expiry_cadence="weekly", expiry_weekday=1,  # Tuesday — the only NSE index that still gets weekly expiry
     ),
     "BANKNIFTY": Instrument(
-        "BANKNIFTY", "Bank Nifty", True, 35, 100, 57300.0, 0.14, "NSE",
+        "BANKNIFTY", "Bank Nifty", True, 35, 100, 57497.80, 0.14, "NSE",
         kite_underlying_name="BANKNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY BANK",
         expiry_cadence="monthly", expiry_weekday=1,  # weekly discontinued Nov 2024; last-Tuesday monthly since
     ),
     "FINNIFTY": Instrument(
-        "FINNIFTY", "Fin Nifty", True, 65, 50, 23700.0, 0.13, "NSE",
+        "FINNIFTY", "Fin Nifty", True, 65, 50, 26217.15, 0.13, "NSE",
         kite_underlying_name="FINNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY FIN SERVICE",
         expiry_cadence="monthly", expiry_weekday=1,
     ),
     "MIDCPNIFTY": Instrument(
-        "MIDCPNIFTY", "Midcap Nifty", True, 140, 25, 14900.0, 0.16, "NSE",
+        "MIDCPNIFTY", "Midcap Nifty", True, 140, 25, 14948.0, 0.16, "NSE",
         kite_underlying_name="MIDCPNIFTY", kite_options_exchange="NFO",
         kite_spot_exchange="NSE", kite_spot_tradingsymbol="NIFTY MID SELECT",
         expiry_cadence="monthly", expiry_weekday=1,
