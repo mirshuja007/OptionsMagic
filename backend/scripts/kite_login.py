@@ -48,6 +48,7 @@ import argparse
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -178,7 +179,45 @@ def main() -> int:
     access_token = session_data["access_token"]
     upsert_env_var(ENV_PATH, "KITE_API_KEY", api_key)
     upsert_env_var(ENV_PATH, "KITE_ACCESS_TOKEN", access_token)
+
+    # Verify the write actually stuck — immediately, and again after a short
+    # delay. This machine has shown a reproducible pattern of .env reverting
+    # to a stale token shortly after a successful write, with the cause
+    # never pinned down across several rounds of manual checking (stale
+    # terminal scrollback and a lingering Notepad window both turned out to
+    # be red herrings, not the actual cause). Rather than rely on a human
+    # re-checking at some later, unspecified moment, prove it here, now,
+    # in one atomic script run.
+    def _read_token() -> str | None:
+        for line in ENV_PATH.read_text().splitlines():
+            if line.startswith("KITE_ACCESS_TOKEN="):
+                return line.split("=", 1)[1]
+        return None
+
+    immediate = _read_token()
+    if immediate != access_token:
+        print(
+            f"WARNING: wrote token ending ...{access_token[-6:]} but an immediate re-read shows "
+            f"...{(immediate or '')[-6:]} instead — the write did not stick at all.",
+            file=sys.stderr,
+        )
+        return 1
+
+    time.sleep(3)
+    delayed = _read_token()
+    if delayed != access_token:
+        print(
+            f"WARNING: the token was correct immediately after writing, but {ENV_PATH} now reads "
+            f"...{(delayed or '')[-6:]} just 3 seconds later — something else on this machine is "
+            "modifying this file shortly after it's written. Check Task Scheduler, any 'protected "
+            "folder' / ransomware-guard feature in installed security software, sync/backup tools "
+            "watching this folder, or an editor with autosave pointed at this file.",
+            file=sys.stderr,
+        )
+        return 1
+
     print(f"\nWrote KITE_API_KEY and KITE_ACCESS_TOKEN to {ENV_PATH}")
+    print("Verified: the token is still correct 3 seconds after writing.")
     print("Restart the backend (or reload it) to pick up the new token.")
     return 0
 
