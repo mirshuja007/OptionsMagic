@@ -94,9 +94,23 @@ export default function ResearchPage() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile
           label="Smart OI Bias"
-          value={oi ? oi.smart_oi.bias : "—"}
-          tone={oi ? (oi.smart_oi.bias === "bullish" ? "positive" : oi.smart_oi.bias === "bearish" ? "negative" : "neutral") : "neutral"}
-          sub={oi ? `score ${oi.smart_oi.score.toFixed(2)}` : undefined}
+          value={oi ? (oi.oi_change_available ? oi.smart_oi.bias : "n/a") : "—"}
+          tone={
+            oi && oi.oi_change_available
+              ? oi.smart_oi.bias === "bullish"
+                ? "positive"
+                : oi.smart_oi.bias === "bearish"
+                  ? "negative"
+                  : "neutral"
+              : "neutral"
+          }
+          sub={
+            oi
+              ? oi.oi_change_available
+                ? `score ${oi.smart_oi.score.toFixed(2)}`
+                : "OI-change unavailable on live feed"
+              : undefined
+          }
         />
         <StatTile
           label="Gamma Exposure (GEX)"
@@ -104,22 +118,19 @@ export default function ResearchPage() {
           sub={oi ? `net ${(oi.gamma_exposure.net_gex / 1e7).toFixed(2)} Cr` : undefined}
         />
         <StatTile label="Volatility Skew (25d)" value={vol ? vol.skew.skew.toFixed(4) : "—"} />
-        <StatTile
-          label="VWAP"
-          value={intraday && intraday.points.length > 0 ? intraday.points[intraday.points.length - 1].vwap.toFixed(2) : "—"}
-          tone={
-            intraday && intraday.points.length > 0
-              ? intraday.points[intraday.points.length - 1].spot >= intraday.points[intraday.points.length - 1].vwap
-                ? "positive"
-                : "negative"
-              : "neutral"
-          }
-          sub={
-            intraday && intraday.points.length > 0
-              ? `spot ${intraday.points[intraday.points.length - 1].spot >= intraday.points[intraday.points.length - 1].vwap ? "above" : "below"}`
-              : undefined
-          }
-        />
+        {(() => {
+          const last = intraday && intraday.points.length > 0 ? intraday.points[intraday.points.length - 1] : null;
+          const diff = last ? last.spot - last.vwap : 0;
+          const atVwap = last ? Math.abs(diff) < 0.01 : false;
+          return (
+            <StatTile
+              label="VWAP"
+              value={last ? last.vwap.toFixed(2) : "—"}
+              tone={last ? (atVwap ? "neutral" : diff > 0 ? "positive" : "negative") : "neutral"}
+              sub={last ? (atVwap ? "spot at VWAP" : `spot ${diff > 0 ? "above" : "below"}`) : undefined}
+            />
+          );
+        })()}
       </div>
 
       {oi && <OiChart data={oi.by_strike} />}

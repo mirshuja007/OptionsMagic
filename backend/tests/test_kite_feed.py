@@ -5,10 +5,12 @@ import pytest
 from app.core.black_scholes import OptionType, price as bs_price
 from app.data import kite_feed
 from app.data.kite_client import KiteAuthError, get_kite_client, reset_kite_client
+from app.data.instruments import get_instrument
 from app.data.kite_feed import (
     DEFAULT_IV_FALLBACK,
     KiteFeedError,
     _as_date,
+    _effective_expiry_cutoff_date,
     _pick_expiry,
     _quote_to_leg,
     _select_strike_rows,
@@ -41,6 +43,24 @@ def test_pick_expiry_rejects_unlisted_requested_expiry():
 def test_pick_expiry_picks_nearest_upcoming_when_none_requested():
     expiries = [date(2026, 8, 13), date(2026, 8, 20), date(2026, 8, 27)]
     assert _pick_expiry(expiries, None, date(2026, 8, 16)) == date(2026, 8, 20)
+
+
+def test_effective_expiry_cutoff_before_session_end_is_today():
+    nifty = get_instrument("NIFTY")  # session_end 15:30
+    as_of = datetime(2026, 8, 18, 10, 0)  # 10:00 AM, well before close
+    assert _effective_expiry_cutoff_date(nifty, as_of) == date(2026, 8, 18)
+
+
+def test_effective_expiry_cutoff_after_session_end_rolls_to_tomorrow():
+    nifty = get_instrument("NIFTY")
+    as_of = datetime(2026, 8, 18, 18, 41)  # 6:41 PM, well after the 15:30 close
+    assert _effective_expiry_cutoff_date(nifty, as_of) == date(2026, 8, 19)
+
+
+def test_effective_expiry_cutoff_exactly_at_session_end_rolls_to_tomorrow():
+    nifty = get_instrument("NIFTY")
+    as_of = datetime(2026, 8, 18, 15, 30)
+    assert _effective_expiry_cutoff_date(nifty, as_of) == date(2026, 8, 19)
 
 
 def test_pick_expiry_raises_when_all_expiries_are_past():
@@ -169,6 +189,45 @@ def _build_fake_chain_fixtures(spot=24800.0, expiry=None):
                 "depth": {"buy": [{"price": theo - 0.5}], "sell": [{"price": theo + 0.5}]},
             }
     return nfo_rows, quote_map, expiry
+
+
+def test_generate_option_chain_skips_todays_expiry_after_session_close(monkeypatch):
+    """Regression test: if today (2026-08-18) is itself a listed expiry but
+    the session has already closed (as_of is 18:41, well past NIFTY's 15:30
+    close), the default (no explicit expiry requested) pick must roll to
+    the next listed expiry, not settle on today's already-closed contract
+    (which would otherwise floor time-to-expiry near zero and make IV
+    solving degenerate).
+    """
+    today_expiry = date(2026, 8, 18)
+    next_expiry = date(2026, 8, 25)
+    spot = 24150.0
+    strikes = [24100, 24150, 24200]
+    nfo_rows = []
+    quote_map = {}
+    for expiry in (today_expiry, next_expiry):
+        for strike in strikes:
+            for side in ("CE", "PE"):
+                symbol = f"NIFTY_{expiry.isoformat()}_{strike}_{side}"
+                nfo_rows.append(_instrument_row(strike, side, expiry, symbol))
+                key = f"NFO:{symbol}"
+                option_type = OptionType.CALL if side == "CE" else OptionType.PUT
+                theo = bs_price(spot, strike, 0.05, 0.065, 0.15, option_type)
+                quote_map[key] = {
+                    "last_price": theo,
+                    "oi": 1000,
+                    "volume": 500,
+                    "depth": {"buy": [{"price": theo - 0.5}], "sell": [{"price": theo + 0.5}]},
+                }
+
+    fake = FakeKite(nfo_rows, spot, quote_map)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    as_of = datetime(2026, 8, 18, 18, 41)  # well after today's 15:30 close
+    chain = kite_feed.generate_option_chain("NIFTY", as_of=as_of)
+
+    assert chain.expiry == next_expiry
 
 
 def test_generate_option_chain_end_to_end(monkeypatch):

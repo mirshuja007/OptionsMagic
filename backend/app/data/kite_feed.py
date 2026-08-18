@@ -25,7 +25,7 @@ Known gaps, tracked rather than hidden:
 from __future__ import annotations
 
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from kiteconnect.exceptions import KiteException
 
@@ -93,11 +93,31 @@ def _option_rows_for(instrument: Instrument) -> list[dict]:
     return rows
 
 
+def _effective_expiry_cutoff_date(instrument: Instrument, as_of: datetime) -> date:
+    """Once today's session has closed, today's own expiry (if it has one)
+    is already settled, not a live tradeable contract — picking it as the
+    "default/nearest" expiry after the close produces a near-zero
+    time-to-expiry, which makes IV solving numerically degenerate (wild
+    implied vols, decay curves flattened to intrinsic value only). Treat
+    "today" as already past once the session has ended.
+    """
+    if as_of.time() >= instrument.session_end:
+        return as_of.date() + timedelta(days=1)
+    return as_of.date()
+
+
 def available_expiries(symbol: str) -> list[date]:
-    """Every expiry currently listed for this underlying, ascending."""
+    """Every expiry currently listed for this underlying, ascending —
+    excluding one that's dated today but already past today's session
+    close (see ``_effective_expiry_cutoff_date``), so the frontend's expiry
+    selector doesn't default to an already-settled contract.
+    """
     instrument = get_instrument(symbol)
     rows = _option_rows_for(instrument)
-    return sorted({_as_date(r["expiry"]) for r in rows})
+    all_expiries = sorted({_as_date(r["expiry"]) for r in rows})
+    cutoff = _effective_expiry_cutoff_date(instrument, datetime.now())
+    upcoming = [e for e in all_expiries if e >= cutoff]
+    return upcoming or all_expiries
 
 
 def _pick_expiry(expiries: list[date], requested: date | None, as_of: date) -> date:
@@ -226,7 +246,11 @@ def generate_option_chain(
 
     option_rows = _option_rows_for(instrument)
     expiries = sorted({_as_date(r["expiry"]) for r in option_rows})
-    resolved_expiry = _pick_expiry(expiries, expiry, as_of.date())
+    # _pick_expiry ignores this cutoff when `expiry` is explicitly requested
+    # (it just validates the requested date is listed) — only the "pick the
+    # nearest upcoming" default path needs the session-aware cutoff.
+    cutoff = _effective_expiry_cutoff_date(instrument, as_of)
+    resolved_expiry = _pick_expiry(expiries, expiry, cutoff)
 
     spot = _underlying_price(kite, instrument, resolved_expiry)
     strike_map = _select_strike_rows(option_rows, resolved_expiry, spot, num_strikes)

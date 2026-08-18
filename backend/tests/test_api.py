@@ -64,6 +64,12 @@ def test_intraday_endpoint_includes_volume_and_vwap():
     assert min(prices) <= points[-1]["vwap"] <= max(prices)
 
 
+def test_oi_endpoint_reports_oi_change_available_true_on_mock():
+    r = client.get("/api/analytics/oi/NIFTY")
+    assert r.status_code == 200
+    assert r.json()["oi_change_available"] is True
+
+
 def test_expiries_endpoint_returns_ascending_future_dates():
     r = client.get("/api/expiries/NIFTY")
     assert r.status_code == 200
@@ -173,7 +179,9 @@ def test_live_margin_requires_kite_auth(monkeypatch):
     monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
     reset_kite_client()
 
-    legs = [{"option_type": "CE", "strike": 24800, "side": "short", "quantity_lots": 1}]
+    strikes = sorted(row["strike"] for row in client.get("/api/option-chain/NIFTY").json()["rows"])
+    atm_strike = strikes[len(strikes) // 2]
+    legs = [{"option_type": "CE", "strike": atm_strike, "side": "short", "quantity_lots": 1}]
     r = client.post("/api/margin/live", json={"symbol": "NIFTY", "legs": legs})
     assert r.status_code == 401
     reset_kite_client()
@@ -188,7 +196,9 @@ def test_live_margin_rejects_legs_from_mock_feed(monkeypatch):
 
     monkeypatch.setattr(kite_margin_mod, "get_kite_client", lambda: FakeKiteMargin())
 
-    legs = [{"option_type": "CE", "strike": 24800, "side": "short", "quantity_lots": 1}]
+    strikes = sorted(row["strike"] for row in client.get("/api/option-chain/NIFTY").json()["rows"])
+    atm_strike = strikes[len(strikes) // 2]
+    legs = [{"option_type": "CE", "strike": atm_strike, "side": "short", "quantity_lots": 1}]
     r = client.post("/api/margin/live", json={"symbol": "NIFTY", "legs": legs})
     # NIFTY's chain here is the default mock feed, so legs never get a
     # tradingsymbol -> the margin lookup should reject them with a clear 422.

@@ -91,6 +91,7 @@ export interface OiResponse {
   symbol: string;
   by_strike: StrikeOi[];
   smart_oi: { score: number; bias: string };
+  oi_change_available: boolean;
   gamma_exposure: {
     net_gex: number;
     call_gex: number;

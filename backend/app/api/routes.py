@@ -174,6 +174,12 @@ def open_interest(symbol: str, expiry: date | None = None, spot_change_pct: floa
         "symbol": chain.symbol,
         "by_strike": [s.__dict__ for s in strikes],
         "smart_oi": smart,
+        # kite_feed's oi_change is always 0 (Kite's quote API has no
+        # previous-session diff — see kite_feed.py's module docstring), so
+        # smart_oi_score is structurally always {"score": 0.0, "bias":
+        # "neutral"} under live data. This flag lets the frontend say so
+        # instead of presenting that as a real reading.
+        "oi_change_available": get_active_provider() != "kite",
         "gamma_exposure": gex,
     }
 
