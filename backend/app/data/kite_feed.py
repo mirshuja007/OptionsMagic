@@ -333,6 +333,20 @@ def generate_minute_series(
 
     start = datetime.combine(session_date, instrument.session_start)
     end = datetime.combine(session_date, instrument.session_end)
+    if session_date == date.today():
+        # Requesting a still-in-progress (or not-yet-started) session's full
+        # end-of-day range returns no candles at all — Kite has nothing to
+        # give for minutes that haven't happened yet. Cap the request at
+        # "now" instead, and give a clear, specific error if the session
+        # hasn't opened yet rather than a confusing empty result.
+        now = datetime.now()
+        if now < start:
+            raise KiteFeedError(
+                f"Market hasn't opened yet today for {symbol} (session starts {instrument.session_start.strftime('%H:%M')}); "
+                "no intraday minute data available until then."
+            )
+        end = min(end, now)
+
     try:
         candles = kite.historical_data(match["instrument_token"], start, end, interval="minute")
     except KiteException as exc:

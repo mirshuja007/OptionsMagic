@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 
 import pytest
 
@@ -167,6 +167,7 @@ class FakeKite:
         return {k: self._quote_map[k] for k in keys if k in self._quote_map}
 
     def historical_data(self, instrument_token, from_date, to_date, interval):
+        self.last_historical_call = {"from_date": from_date, "to_date": to_date, "interval": interval}
         return self._historical_candles
 
 
@@ -259,7 +260,10 @@ def test_generate_option_chain_raises_kite_feed_error_on_unmapped_underlying(mon
 
 
 def test_generate_minute_series_end_to_end(monkeypatch):
-    session_date = date.today()
+    # A fixed past date, not date.today() — generate_minute_series caps
+    # "today" requests at the current time, which would make this test's
+    # outcome depend on what time of day it happens to run.
+    session_date = date(2026, 8, 17)
     candles = [
         {
             "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i),
@@ -281,7 +285,7 @@ def test_generate_minute_series_end_to_end(monkeypatch):
 
 
 def test_generate_minute_series_defaults_volume_to_zero_when_absent(monkeypatch):
-    session_date = date.today()
+    session_date = date(2026, 8, 17)  # fixed past date — see comment above
     candles = [
         {"date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15), "close": 24800.0}
     ]
@@ -291,6 +295,49 @@ def test_generate_minute_series_defaults_volume_to_zero_when_absent(monkeypatch)
 
     series = kite_feed.generate_minute_series("NIFTY", session_date=session_date, minutes=1)
     assert series[0][2] == 0
+
+
+class _FrozenDateTime(datetime):
+    """A ``datetime`` subclass whose ``now()`` returns a fixed instant —
+    used to test kite_feed's "cap the historical_data request at now"
+    behavior without depending on when the test suite actually runs.
+    """
+
+    _frozen_now: datetime
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls._frozen_now
+
+
+def test_generate_minute_series_raises_clear_error_before_market_open(monkeypatch):
+    today = date.today()
+    _FrozenDateTime._frozen_now = datetime.combine(today, dtime(8, 0))  # NIFTY opens 09:15
+    monkeypatch.setattr(kite_feed, "datetime", _FrozenDateTime)
+
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=[])
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError, match="hasn't opened yet"):
+        kite_feed.generate_minute_series("NIFTY", session_date=today)
+
+
+def test_generate_minute_series_caps_request_at_now_for_todays_in_progress_session(monkeypatch):
+    today = date.today()
+    frozen_now = datetime.combine(today, dtime(10, 30))  # mid-session, well before 15:30 close
+    _FrozenDateTime._frozen_now = frozen_now
+    monkeypatch.setattr(kite_feed, "datetime", _FrozenDateTime)
+
+    candles = [{"date": datetime.combine(today, dtime(9, 15)), "close": 24800.0, "volume": 100}]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    kite_feed.generate_minute_series("NIFTY", session_date=today)
+
+    assert fake.last_historical_call["to_date"] == frozen_now
+    assert fake.last_historical_call["to_date"] < datetime.combine(today, dtime(15, 30))
 
 
 def test_available_expiries_returns_sorted_unique_listed_dates(monkeypatch):
