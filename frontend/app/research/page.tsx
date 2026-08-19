@@ -32,7 +32,7 @@ export default function ResearchPage() {
   useEffect(() => {
     if (!expiry) return; // wait for ExpirySelector to resolve a default for this symbol
     setError(null);
-    Promise.all([
+    Promise.allSettled([
       api.optionChain(symbol, expiry),
       api.intraday(symbol),
       api.maxPain(symbol, expiry),
@@ -40,17 +40,19 @@ export default function ResearchPage() {
       api.oi(symbol, expiry),
       api.volatility(symbol, expiry),
       api.straddle(symbol, expiry),
-    ])
-      .then(([c, i, mp, p, o, v, s]) => {
-        setChain(c);
-        setIntraday(i);
-        setMaxPain(mp);
-        setPcr(p);
-        setOi(o);
-        setVol(v);
-        setStraddle(s);
-      })
-      .catch((e) => setError(String(e)));
+    ]).then(([c, i, mp, p, o, v, s]) => {
+      setChain(c.status === "fulfilled" ? c.value : null);
+      setIntraday(i.status === "fulfilled" ? i.value : null);
+      setMaxPain(mp.status === "fulfilled" ? mp.value : null);
+      setPcr(p.status === "fulfilled" ? p.value : null);
+      setOi(o.status === "fulfilled" ? o.value : null);
+      setVol(v.status === "fulfilled" ? v.value : null);
+      setStraddle(s.status === "fulfilled" ? s.value : null);
+      const errors = [c, i, mp, p, o, v, s]
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => String(r.reason));
+      setError(errors.length > 0 ? errors.join("; ") : null);
+    });
   }, [symbol, expiry]);
 
   return (
@@ -65,7 +67,7 @@ export default function ResearchPage() {
 
       {error && (
         <div className="card border-danger/40 text-sm text-danger">
-          Couldn&apos;t reach the backend at NEXT_PUBLIC_API_BASE_URL: {error}
+          Some data couldn&apos;t be loaded from NEXT_PUBLIC_API_BASE_URL: {error}
         </div>
       )}
 
