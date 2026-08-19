@@ -13,6 +13,15 @@ export default function OptionChainTable({ chain }: { chain: OptionChain }) {
     <div className="card overflow-x-auto">
       <table className="w-full min-w-[900px] text-right text-sm">
         <thead className="text-xs uppercase text-muted">
+          <tr className="border-b border-border">
+            <th colSpan={6} className="px-2 py-1.5 text-center font-semibold tracking-wide text-accent">
+              Calls
+            </th>
+            <th className="px-3 py-1.5" />
+            <th colSpan={6} className="px-2 py-1.5 text-center font-semibold tracking-wide text-danger">
+              Puts
+            </th>
+          </tr>
           <tr>
             <th className="px-2 py-2 text-right">OI</th>
             <th className="px-2 py-2 text-right">Chg OI</th>
