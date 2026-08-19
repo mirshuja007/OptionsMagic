@@ -27,7 +27,10 @@ from __future__ import annotations
 import time
 from datetime import date, datetime, timedelta
 
+import requests
 from kiteconnect.exceptions import KiteException
+
+_KiteTransportError = (KiteException, requests.exceptions.RequestException)
 
 from app.core.black_scholes import Greeks, OptionType, greeks as bs_greeks, implied_volatility
 from app.data.instruments import Instrument, get_instrument
@@ -62,7 +65,7 @@ def _instrument_dump(exchange: str) -> list[dict]:
     kite = get_kite_client()
     try:
         rows = kite.instruments(exchange)
-    except KiteException as exc:
+    except _KiteTransportError as exc:
         raise KiteFeedError(f"Failed to fetch {exchange} instrument dump: {exc}") from exc
 
     _instrument_cache[exchange] = (now, rows)
@@ -157,7 +160,7 @@ def _quote_key(instrument: Instrument, tradingsymbol: str) -> str:
 def _ltp(kite, key: str) -> float:
     try:
         resp = kite.ltp(key)
-    except KiteException as exc:
+    except _KiteTransportError as exc:
         raise KiteFeedError(f"Failed to fetch LTP for {key}: {exc}") from exc
     try:
         return float(resp[key]["last_price"])
@@ -268,7 +271,7 @@ def generate_option_chain(
 
     try:
         quotes = kite.quote(list(token_map.keys()))
-    except KiteException as exc:
+    except _KiteTransportError as exc:
         raise KiteFeedError(f"Failed to fetch quotes for {instrument.symbol} chain: {exc}") from exc
 
     rows_by_strike: dict[float, dict[str, LegQuote]] = {}
@@ -335,7 +338,7 @@ def generate_minute_series(
     end = datetime.combine(session_date, instrument.session_end)
     try:
         candles = kite.historical_data(match["instrument_token"], start, end, interval="minute")
-    except KiteException as exc:
+    except _KiteTransportError as exc:
         raise KiteFeedError(f"Historical data request failed for {symbol} on {session_date}: {exc}") from exc
 
     if not candles:
