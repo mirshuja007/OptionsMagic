@@ -129,6 +129,35 @@ export interface StraddleResponse {
   decay_curve: { time_to_expiry_years: number; combined_premium: number }[];
 }
 
+export interface SupportResistance {
+  support_strike: number;
+  support_put_oi: number;
+  resistance_strike: number;
+  resistance_call_oi: number;
+}
+
+export interface ExpiryBand {
+  band_pct: number;
+  lower: number;
+  upper: number;
+  probability: number | null;
+}
+
+export interface CommentaryResponse {
+  symbol: string;
+  spot: number;
+  prev_close: number;
+  vwap: number | null;
+  atm_iv: number;
+  time_to_expiry_years: number;
+  max_pain_strike: number;
+  pcr_oi: number;
+  smart_oi: { score: number; bias: string };
+  oi_change_available: boolean;
+  support_resistance: SupportResistance;
+  expiry_band: ExpiryBand;
+}
+
 export interface LegOut {
   option_type: "CE" | "PE";
   strike: number;

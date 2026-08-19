@@ -2,11 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { IntradayResponse, MaxPainResponse, OiResponse, OptionChain, PcrResponse, StraddleResponse, VolatilityResponse } from "@/lib/types";
+import type {
+  CommentaryResponse,
+  IntradayResponse,
+  MaxPainResponse,
+  OiResponse,
+  OptionChain,
+  PcrResponse,
+  StraddleResponse,
+  VolatilityResponse,
+} from "@/lib/types";
 import SymbolSelector from "@/components/SymbolSelector";
 import ExpirySelector from "@/components/ExpirySelector";
 import StatTile from "@/components/StatTile";
 import OptionChainTable from "@/components/OptionChainTable";
+import CommentaryBox from "@/components/CommentaryBox";
 import OiChart from "@/components/OiChart";
 import IvSkewChart from "@/components/IvSkewChart";
 import StraddleDecayChart from "@/components/StraddleDecayChart";
@@ -24,6 +34,7 @@ export default function ResearchPage() {
   const [oi, setOi] = useState<OiResponse | null>(null);
   const [vol, setVol] = useState<VolatilityResponse | null>(null);
   const [straddle, setStraddle] = useState<StraddleResponse | null>(null);
+  const [commentary, setCommentary] = useState<CommentaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -46,7 +57,8 @@ export default function ResearchPage() {
         api.oi(symbol, expiry),
         api.volatility(symbol, expiry),
         api.straddle(symbol, expiry),
-      ]).then(([c, i, mp, p, o, v, s]) => {
+        api.commentary(symbol, expiry),
+      ]).then(([c, i, mp, p, o, v, s, cm]) => {
         if (cancelled) return;
         setChain(c.status === "fulfilled" ? c.value : null);
         setIntraday(i.status === "fulfilled" ? i.value : null);
@@ -55,7 +67,8 @@ export default function ResearchPage() {
         setOi(o.status === "fulfilled" ? o.value : null);
         setVol(v.status === "fulfilled" ? v.value : null);
         setStraddle(s.status === "fulfilled" ? s.value : null);
-        const errors = [c, i, mp, p, o, v, s]
+        setCommentary(cm.status === "fulfilled" ? cm.value : null);
+        const errors = [c, i, mp, p, o, v, s, cm]
           .filter((r): r is PromiseRejectedResult => r.status === "rejected")
           .map((r) => String(r.reason));
         setError(errors.length > 0 ? errors.join("; ") : null);
@@ -172,6 +185,8 @@ export default function ResearchPage() {
           );
         })()}
       </div>
+
+      {commentary && <CommentaryBox data={commentary} />}
 
       {oi && <OiChart data={oi.by_strike} />}
 

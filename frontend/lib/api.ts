@@ -1,4 +1,5 @@
 import type {
+  CommentaryResponse,
   DiscoverResponse,
   ExpiriesResponse,
   Instrument,
@@ -55,6 +56,8 @@ export const api = {
     getJson<VolatilityResponse>(withExpiry(`/analytics/volatility/${symbol}`, expiry)),
   straddle: (symbol: string, expiry?: string) =>
     getJson<StraddleResponse>(withExpiry(`/analytics/straddle/${symbol}`, expiry)),
+  commentary: (symbol: string, expiry?: string) =>
+    getJson<CommentaryResponse>(withExpiry(`/analytics/commentary/${symbol}`, expiry)),
   discoverStrategies: (symbol: string, constraints: StrategyConstraintsIn, expiry?: string) =>
     postJson<DiscoverResponse>("/strategy/discover", { symbol, constraints, expiry: expiry || undefined }),
   liveMargin: (symbol: string, legs: LegOut[]) =>

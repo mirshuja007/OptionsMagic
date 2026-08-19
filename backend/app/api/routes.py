@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException
 
+from app.analytics import commentary as commentary_mod
 from app.analytics import max_pain as max_pain_mod
 from app.analytics import oi as oi_mod
 from app.analytics import pcr as pcr_mod
@@ -205,6 +206,50 @@ def straddle(symbol: str, expiry: date | None = None):
         "atm_straddle": straddle_mod.atm_straddle(chain).__dict__,
         "multistrike": [p.__dict__ for p in straddle_mod.multistrike_straddle(chain)],
         "decay_curve": straddle_mod.premium_decay_curve(chain),
+    }
+
+
+@router.get("/analytics/commentary/{symbol}")
+def commentary(symbol: str, expiry: date | None = None):
+    """Structured inputs for the Research Mode commentary box: OI-based
+    support/resistance, Max Pain, PCR, Smart OI bias, VWAP positioning, and
+    a probability estimate for the underlying settling within +/-0.2% of
+    spot at expiry. All numbers, not prose — the frontend builds the
+    displayed sentence from these so nothing shown is free-generated.
+    """
+    chain = _get_chain(symbol, expiry)
+    max_pain_result = max_pain_mod.compute_max_pain(chain)
+    pcr_result = pcr_mod.compute_pcr(chain)
+    smart = oi_mod.smart_oi_score(chain)
+    sr = commentary_mod.support_resistance(chain)
+    atm_iv_value = volatility_mod.atm_iv(chain)
+    band = commentary_mod.expiry_band_probability(chain.spot, atm_iv_value, chain.time_to_expiry_years)
+
+    vwap_value = None
+    try:
+        series = generate_minute_series(chain.symbol)
+        vwaps = vwap_mod.vwap_series([(p, v) for _, p, v in series])
+        if vwaps:
+            vwap_value = round(vwaps[-1], 2)
+    except (KiteFeedError, KiteAuthError):
+        # VWAP needs today's minute series, which can legitimately be
+        # unavailable (before market open, or a live-feed hiccup) without
+        # invalidating the rest of the commentary — degrade gracefully.
+        vwap_value = None
+
+    return {
+        "symbol": chain.symbol,
+        "spot": chain.spot,
+        "prev_close": chain.prev_close,
+        "vwap": vwap_value,
+        "atm_iv": atm_iv_value,
+        "time_to_expiry_years": chain.time_to_expiry_years,
+        "max_pain_strike": max_pain_result.max_pain_strike,
+        "pcr_oi": pcr_result.pcr_oi,
+        "smart_oi": smart,
+        "oi_change_available": get_active_provider() != "kite",
+        "support_resistance": sr.__dict__,
+        "expiry_band": band,
     }
 
 
