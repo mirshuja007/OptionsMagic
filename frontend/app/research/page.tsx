@@ -12,6 +12,8 @@ import IvSkewChart from "@/components/IvSkewChart";
 import StraddleDecayChart from "@/components/StraddleDecayChart";
 import IntradayPriceChart from "@/components/IntradayPriceChart";
 
+const POLL_INTERVAL_MS = 15_000; // how often Research Mode re-fetches while a symbol/expiry is selected
+
 export default function ResearchPage() {
   const [symbol, setSymbol] = useState("NIFTY");
   const [expiry, setExpiry] = useState("");
@@ -23,6 +25,7 @@ export default function ResearchPage() {
   const [vol, setVol] = useState<VolatilityResponse | null>(null);
   const [straddle, setStraddle] = useState<StraddleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   function handleSymbolChange(next: string) {
     setSymbol(next);
@@ -31,34 +34,56 @@ export default function ResearchPage() {
 
   useEffect(() => {
     if (!expiry) return; // wait for ExpirySelector to resolve a default for this symbol
-    setError(null);
-    Promise.allSettled([
-      api.optionChain(symbol, expiry),
-      api.intraday(symbol),
-      api.maxPain(symbol, expiry),
-      api.pcr(symbol, expiry),
-      api.oi(symbol, expiry),
-      api.volatility(symbol, expiry),
-      api.straddle(symbol, expiry),
-    ]).then(([c, i, mp, p, o, v, s]) => {
-      setChain(c.status === "fulfilled" ? c.value : null);
-      setIntraday(i.status === "fulfilled" ? i.value : null);
-      setMaxPain(mp.status === "fulfilled" ? mp.value : null);
-      setPcr(p.status === "fulfilled" ? p.value : null);
-      setOi(o.status === "fulfilled" ? o.value : null);
-      setVol(v.status === "fulfilled" ? v.value : null);
-      setStraddle(s.status === "fulfilled" ? s.value : null);
-      const errors = [c, i, mp, p, o, v, s]
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .map((r) => String(r.reason));
-      setError(errors.length > 0 ? errors.join("; ") : null);
-    });
+
+    let cancelled = false;
+
+    function fetchAll() {
+      Promise.allSettled([
+        api.optionChain(symbol, expiry),
+        api.intraday(symbol),
+        api.maxPain(symbol, expiry),
+        api.pcr(symbol, expiry),
+        api.oi(symbol, expiry),
+        api.volatility(symbol, expiry),
+        api.straddle(symbol, expiry),
+      ]).then(([c, i, mp, p, o, v, s]) => {
+        if (cancelled) return;
+        setChain(c.status === "fulfilled" ? c.value : null);
+        setIntraday(i.status === "fulfilled" ? i.value : null);
+        setMaxPain(mp.status === "fulfilled" ? mp.value : null);
+        setPcr(p.status === "fulfilled" ? p.value : null);
+        setOi(o.status === "fulfilled" ? o.value : null);
+        setVol(v.status === "fulfilled" ? v.value : null);
+        setStraddle(s.status === "fulfilled" ? s.value : null);
+        const errors = [c, i, mp, p, o, v, s]
+          .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+          .map((r) => String(r.reason));
+        setError(errors.length > 0 ? errors.join("; ") : null);
+        setLastUpdated(new Date());
+      });
+    }
+
+    fetchAll();
+    const id = setInterval(fetchAll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [symbol, expiry]);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Research Mode</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold">Research Mode</h1>
+          {lastUpdated && (
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              Updated {lastUpdated.toLocaleTimeString("en-IN", { hour12: false })} · refreshes every{" "}
+              {POLL_INTERVAL_MS / 1000}s
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <ExpirySelector symbol={symbol} value={expiry} onChange={setExpiry} />
           <SymbolSelector value={symbol} onChange={handleSymbolChange} />
