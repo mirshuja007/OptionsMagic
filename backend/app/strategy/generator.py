@@ -89,13 +89,7 @@ def bear_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)
     return out
 
 
-def iron_condors(
-    chain: OptionChain,
-    widths: tuple[int, ...] = (1, 2, 3, 4),
-    max_combos: int = 300,
-) -> list[Candidate]:
-    puts = bull_put_spreads(chain, widths)
-    calls = bear_call_spreads(chain, widths)
+def _iron_condors_from(puts: list[Candidate], calls: list[Candidate], max_combos: int = 300) -> list[Candidate]:
     out: list[Candidate] = []
     for put_spread in puts:
         for call_spread in calls:
@@ -104,6 +98,14 @@ def iron_condors(
             if len(out) >= max_combos:
                 return out
     return out
+
+
+def iron_condors(
+    chain: OptionChain,
+    widths: tuple[int, ...] = (1, 2, 3, 4),
+    max_combos: int = 300,
+) -> list[Candidate]:
+    return _iron_condors_from(bull_put_spreads(chain, widths), bear_call_spreads(chain, widths), max_combos)
 
 
 def iron_flies(chain: OptionChain, wing_widths: tuple[int, ...] = (2, 3, 4, 5, 6)) -> list[Candidate]:
@@ -153,7 +155,8 @@ def ratio_spreads(
                 _leg(long_row, option_type, Side.LONG, 1, q),
                 _leg(by_strike[short_strike], option_type, Side.SHORT, sell_ratio, q),
             ]
-            out.append(Candidate(f"ratio_spread_{option_type.value.lower()}", legs))
+            label = "call" if option_type == OptionType.CALL else "put"
+            out.append(Candidate(f"ratio_spread_{label}", legs))
     return out
 
 
@@ -162,11 +165,45 @@ def _strike_step(chain: OptionChain) -> float:
     return strikes[1] - strikes[0] if len(strikes) > 1 else 1.0
 
 
-def generate_all_candidates(chain: OptionChain, max_iron_condor_combos: int = 300) -> list[Candidate]:
-    return [
-        *bull_put_spreads(chain),
-        *bear_call_spreads(chain),
-        *iron_condors(chain, max_combos=max_iron_condor_combos),
-        *iron_flies(chain),
-        *ratio_spreads(chain),
-    ]
+#: Every strategy_type string a Candidate can carry, in generation order —
+#: the vocabulary strategy_types filters (solver.py, the API) validate
+#: against.
+ALL_STRATEGY_TYPES = (
+    "bull_put_spread",
+    "bear_call_spread",
+    "iron_condor",
+    "iron_fly",
+    "ratio_spread_call",
+    "ratio_spread_put",
+)
+
+
+def generate_all_candidates(
+    chain: OptionChain,
+    max_iron_condor_combos: int = 300,
+    strategy_types: set[str] | None = None,
+) -> list[Candidate]:
+    """All candidates, optionally restricted to a subset of
+    ``ALL_STRATEGY_TYPES`` (``strategy_types=None`` means every type).
+    Iron condors are built from bull put + bear call spreads, so both must
+    be included whenever ``iron_condor`` is requested.
+    """
+    want = strategy_types if strategy_types is not None else set(ALL_STRATEGY_TYPES)
+    need_puts = "bull_put_spread" in want or "iron_condor" in want
+    need_calls = "bear_call_spread" in want or "iron_condor" in want
+
+    puts = bull_put_spreads(chain) if need_puts else []
+    calls = bear_call_spreads(chain) if need_calls else []
+
+    out: list[Candidate] = []
+    if "bull_put_spread" in want:
+        out += puts
+    if "bear_call_spread" in want:
+        out += calls
+    if "iron_condor" in want:
+        out += _iron_condors_from(puts, calls, max_combos=max_iron_condor_combos)
+    if "iron_fly" in want:
+        out += iron_flies(chain)
+    if "ratio_spread_call" in want or "ratio_spread_put" in want:
+        out += [c for c in ratio_spreads(chain) if c.strategy_type in want]
+    return out

@@ -45,7 +45,7 @@ from app.data.kite_client import KiteAuthError
 from app.data.kite_feed import KiteFeedError
 from app.margin.kite_margin import KiteMarginError, fetch_basket_margin
 from app.risk.automation import RiskRules
-from app.strategy.solver import StrategyConstraints, discover_strategies
+from app.strategy.solver import StrategyConstraints, build_research_context, discover_strategies
 
 router = APIRouter()
 _broker = PaperBroker()
@@ -209,6 +209,20 @@ def straddle(symbol: str, expiry: date | None = None):
     }
 
 
+def _current_vwap(symbol: str) -> float | None:
+    """Latest session VWAP for ``symbol``, or None if today's minute series
+    isn't available (before market open, or a live-feed hiccup). Shared by
+    the commentary box and strategy discovery's Research-signal context —
+    neither should fail outright just because VWAP couldn't be computed.
+    """
+    try:
+        series = generate_minute_series(symbol)
+    except (KiteFeedError, KiteAuthError):
+        return None
+    vwaps = vwap_mod.vwap_series([(p, v) for _, p, v in series])
+    return round(vwaps[-1], 2) if vwaps else None
+
+
 @router.get("/analytics/commentary/{symbol}")
 def commentary(symbol: str, expiry: date | None = None):
     """Structured inputs for the Research Mode commentary box: OI-based
@@ -224,18 +238,7 @@ def commentary(symbol: str, expiry: date | None = None):
     sr = commentary_mod.support_resistance(chain)
     atm_iv_value = volatility_mod.atm_iv(chain)
     band = commentary_mod.expiry_band_probability(chain.spot, atm_iv_value, chain.time_to_expiry_years)
-
-    vwap_value = None
-    try:
-        series = generate_minute_series(chain.symbol)
-        vwaps = vwap_mod.vwap_series([(p, v) for _, p, v in series])
-        if vwaps:
-            vwap_value = round(vwaps[-1], 2)
-    except (KiteFeedError, KiteAuthError):
-        # VWAP needs today's minute series, which can legitimately be
-        # unavailable (before market open, or a live-feed hiccup) without
-        # invalidating the rest of the commentary — degrade gracefully.
-        vwap_value = None
+    vwap_value = _current_vwap(chain.symbol)
 
     return {
         "symbol": chain.symbol,
@@ -261,8 +264,16 @@ def discover(req: DiscoverRequest):
     constraints = StrategyConstraints(
         min_pop=c.min_probability_of_profit, min_yield_pct=c.min_yield_pct,
         max_profit_cap=c.max_profit_cap, max_loss_cap=c.max_loss_cap, margin_cap=c.margin_cap,
+        ranking_mode=c.ranking_mode,
+        strategy_types=frozenset(c.strategy_types) if c.strategy_types else None,
+        use_research_signals=c.use_research_signals,
+        direction_bias=c.direction_bias,
     )
-    results = discover_strategies(chain, instrument, constraints)
+    research_ctx = None
+    if c.use_research_signals:
+        vwap_value = _current_vwap(chain.symbol)
+        research_ctx = build_research_context(chain, vwap=vwap_value)
+    results = discover_strategies(chain, instrument, constraints, research_ctx=research_ctx)
     return DiscoverResponse(
         symbol=chain.symbol, spot=chain.spot, expiry=chain.expiry,
         results=[
@@ -275,6 +286,8 @@ def discover(req: DiscoverRequest):
                 expected_value=r.expected_value,
                 sharpe=r.sharpe,
                 yield_pct=r.yield_pct,
+                technical_alignment=r.technical_alignment,
+                composite_score=r.composite_score,
             )
             for r in results
         ],

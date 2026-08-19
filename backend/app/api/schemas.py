@@ -106,6 +106,13 @@ class StrategyConstraintsIn(BaseModel):
     max_profit_cap: float = Field(gt=0)
     max_loss_cap: float = Field(gt=0)
     margin_cap: float = Field(gt=0)
+    ranking_mode: Literal["yield", "balanced", "safety"] = "balanced"
+    # Keep this literal list in sync with app.strategy.generator.ALL_STRATEGY_TYPES.
+    strategy_types: list[Literal[
+        "bull_put_spread", "bear_call_spread", "iron_condor", "iron_fly", "ratio_spread_call", "ratio_spread_put"
+    ]] | None = None  # None = every type
+    use_research_signals: bool = True
+    direction_bias: Literal["auto", "bullish", "bearish", "neutral"] = "auto"
 
 
 class DiscoverRequest(BaseModel):
@@ -137,6 +144,8 @@ class StrategyResultOut(BaseModel):
     expected_value: float
     sharpe: float
     yield_pct: float
+    technical_alignment: float
+    composite_score: float
 
 
 class DiscoverResponse(BaseModel):

@@ -175,12 +175,27 @@ export interface LiveMarginResponse {
   option_premium: number | null;
 }
 
+export type StrategyType =
+  | "bull_put_spread"
+  | "bear_call_spread"
+  | "iron_condor"
+  | "iron_fly"
+  | "ratio_spread_call"
+  | "ratio_spread_put";
+
+export type RankingMode = "yield" | "balanced" | "safety";
+export type DirectionBias = "auto" | "bullish" | "bearish" | "neutral";
+
 export interface StrategyConstraintsIn {
   min_probability_of_profit: number;
   min_yield_pct: number;
   max_profit_cap: number;
   max_loss_cap: number;
   margin_cap: number;
+  ranking_mode: RankingMode;
+  strategy_types: StrategyType[] | null;
+  use_research_signals: boolean;
+  direction_bias: DirectionBias;
 }
 
 export interface StrategyResult {
@@ -202,6 +217,8 @@ export interface StrategyResult {
   expected_value: number;
   sharpe: number;
   yield_pct: number;
+  technical_alignment: number;
+  composite_score: number;
 }
 
 export interface DiscoverResponse {

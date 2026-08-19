@@ -58,7 +58,9 @@ def test_solver_respects_constraint_caps():
         assert r.yield_pct >= constraints.min_yield_pct - 1e-6
 
 
-def test_solver_returns_sorted_by_expected_value_desc():
+def test_solver_returns_sorted_by_composite_score_desc():
+    # Ranking is the user-tunable yield/PoP/Sharpe blend (composite_score),
+    # not raw expected_value — see solver.py's RANKING_WEIGHTS/module docstring.
     chain = generate_option_chain("NIFTY", seed=8)
     instrument = get_instrument("NIFTY")
     constraints = StrategyConstraints(
@@ -71,8 +73,8 @@ def test_solver_returns_sorted_by_expected_value_desc():
         n_paths_final=8000,
     )
     results = discover_strategies(chain, instrument, constraints, top_n=3)
-    evs = [r.expected_value for r in results]
-    assert evs == sorted(evs, reverse=True)
+    scores = [r.composite_score for r in results]
+    assert scores == sorted(scores, reverse=True)
 
 
 def test_solver_with_impossible_constraints_returns_empty():

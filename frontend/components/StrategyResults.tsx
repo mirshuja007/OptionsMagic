@@ -57,7 +57,15 @@ function StrategyCard({ rank, symbol, result: r }: { rank: number; symbol: strin
           <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">#{rank}</span>
           <span className="text-base font-semibold">{strategyLabel(r.strategy_type)}</span>
         </div>
-        <span className="mono text-sm text-muted">EV {fmtCurrency(r.expected_value)}</span>
+        <div className="flex items-center gap-3">
+          <span className="mono text-sm text-muted">EV {fmtCurrency(r.expected_value)}</span>
+          <span
+            className="mono rounded bg-white/5 px-2 py-0.5 text-xs text-slate-300"
+            title="Ranking key: the yield/PoP/Sharpe blend (per the selected ranking mode) plus any Research-signal alignment nudge"
+          >
+            Score {r.composite_score.toFixed(3)}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
@@ -68,6 +76,11 @@ function StrategyCard({ rank, symbol, result: r }: { rank: number; symbol: strin
         <Metric label="Margin Blocked (est.)" value={fmtCurrency(r.margin.total_margin)} />
         <Metric label="Net Entry Credit" value={fmtCurrency(r.margin.net_entry_credit)} />
         <Metric label="Sharpe" value={r.sharpe.toFixed(3)} />
+        <Metric
+          label="Signal Alignment"
+          value={`${(r.technical_alignment * 100).toFixed(0)}%`}
+          tone={r.technical_alignment >= 0.5 ? "positive" : undefined}
+        />
         {liveMargin && <Metric label="Margin Blocked (real, Kite)" value={fmtCurrency(liveMargin.total_margin)} tone="positive" />}
       </div>
 
