@@ -30,6 +30,7 @@ export interface OptionChain {
   timestamp: string;
   time_to_expiry_years: number;
   risk_free_rate: number;
+  prev_close: number;
   rows: ChainRow[];
 }
 

@@ -44,6 +44,7 @@ class OptionChainOut(BaseModel):
     timestamp: datetime
     time_to_expiry_years: float
     risk_free_rate: float
+    prev_close: float
     rows: list[ChainRowOut]
 
 

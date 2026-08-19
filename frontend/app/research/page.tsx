@@ -99,7 +99,20 @@ export default function ResearchPage() {
       {intraday && <IntradayPriceChart data={intraday} />}
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatTile label="Spot" value={chain ? chain.spot.toFixed(2) : "—"} />
+        {(() => {
+          if (!chain) return <StatTile label="Spot" value="—" />;
+          const change = chain.spot - chain.prev_close;
+          const changePct = chain.prev_close !== 0 ? (change / chain.prev_close) * 100 : 0;
+          const sign = change >= 0 ? "+" : "";
+          return (
+            <StatTile
+              label="Spot"
+              value={chain.spot.toFixed(2)}
+              tone={change === 0 ? "neutral" : change > 0 ? "positive" : "negative"}
+              sub={`${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`}
+            />
+          );
+        })()}
         <StatTile
           label="Expiry"
           value={

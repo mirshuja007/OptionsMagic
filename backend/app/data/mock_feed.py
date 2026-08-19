@@ -186,6 +186,11 @@ def generate_option_chain(
         timestamp=as_of,
         time_to_expiry_years=t,
         risk_free_rate=RISK_FREE_RATE,
+        # base_spot is the maintained anchor "today's" spot random-walks
+        # around (see the module-level note above INDICES) — using it as
+        # the simulated previous close gives a plausible, stable day-change
+        # reference without inventing separate state to track.
+        prev_close=instrument.base_spot,
         rows=rows,
     )
 

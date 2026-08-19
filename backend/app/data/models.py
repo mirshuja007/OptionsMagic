@@ -45,4 +45,5 @@ class OptionChain:
     timestamp: datetime
     time_to_expiry_years: float
     risk_free_rate: float
+    prev_close: float
     rows: list[ChainRow] = field(default_factory=list)

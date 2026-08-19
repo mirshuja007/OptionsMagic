@@ -164,18 +164,21 @@ class FakeKite:
         return {key: {"last_price": self._ltp_map.get(key, self._spot_ltp)}}
 
     def quote(self, keys):
-        return {k: self._quote_map[k] for k in keys if k in self._quote_map}
+        # Real kite.quote() accepts either a single instrument string or a
+        # list of them; _quote_underlying calls it with a single string.
+        key_list = [keys] if isinstance(keys, str) else keys
+        return {k: self._quote_map[k] for k in key_list if k in self._quote_map}
 
     def historical_data(self, instrument_token, from_date, to_date, interval):
         self.last_historical_call = {"from_date": from_date, "to_date": to_date, "interval": interval}
         return self._historical_candles
 
 
-def _build_fake_chain_fixtures(spot=24800.0, expiry=None):
+def _build_fake_chain_fixtures(spot=24800.0, expiry=None, prev_close=24700.0):
     expiry = expiry or (date.today() + timedelta(days=4))
     strikes = [24700, 24750, 24800, 24850, 24900]
     nfo_rows = []
-    quote_map = {}
+    quote_map = {"NSE:NIFTY 50": {"last_price": spot, "ohlc": {"close": prev_close}}}
     for strike in strikes:
         for side in ("CE", "PE"):
             symbol = f"NIFTY_{strike}_{side}"
@@ -205,7 +208,7 @@ def test_generate_option_chain_skips_todays_expiry_after_session_close(monkeypat
     spot = 24150.0
     strikes = [24100, 24150, 24200]
     nfo_rows = []
-    quote_map = {}
+    quote_map = {"NSE:NIFTY 50": {"last_price": spot, "ohlc": {"close": 24100.0}}}
     for expiry in (today_expiry, next_expiry):
         for strike in strikes:
             for side in ("CE", "PE"):
@@ -233,7 +236,7 @@ def test_generate_option_chain_skips_todays_expiry_after_session_close(monkeypat
 
 def test_generate_option_chain_end_to_end(monkeypatch):
     spot = 24810.0
-    nfo_rows, quote_map, expiry = _build_fake_chain_fixtures(spot=spot)
+    nfo_rows, quote_map, expiry = _build_fake_chain_fixtures(spot=spot, prev_close=24700.0)
     fake = FakeKite(nfo_rows, spot, quote_map)
     monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
     kite_feed.clear_instrument_cache()
@@ -242,6 +245,7 @@ def test_generate_option_chain_end_to_end(monkeypatch):
 
     assert chain.symbol == "NIFTY"
     assert chain.spot == spot
+    assert chain.prev_close == 24700.0
     assert chain.expiry == expiry
     assert len(chain.rows) == 3
     for row in chain.rows:
@@ -394,9 +398,12 @@ def test_futures_price_picks_nearest_contract_on_or_after_options_expiry(monkeyp
     far_expiry = date(2026, 9, 19)
     fut_rows = [_fut_row(near_expiry, "CRUDEOIL26AUGFUT", 1), _fut_row(far_expiry, "CRUDEOIL26SEPFUT", 2)]
     fake = FakeKite(
-        nfo_rows=[], spot_ltp=0.0, quote_map={},
+        nfo_rows=[], spot_ltp=0.0,
+        quote_map={
+            "MCX:CRUDEOIL26AUGFUT": {"last_price": 6100.0, "ohlc": {"close": 6050.0}},
+            "MCX:CRUDEOIL26SEPFUT": {"last_price": 6250.0, "ohlc": {"close": 6200.0}},
+        },
         extra_dumps={"MCX": fut_rows},
-        ltp_map={"MCX:CRUDEOIL26AUGFUT": 6100.0, "MCX:CRUDEOIL26SEPFUT": 6250.0},
     )
     monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
     kite_feed.clear_instrument_cache()
@@ -404,21 +411,21 @@ def test_futures_price_picks_nearest_contract_on_or_after_options_expiry(monkeyp
     instrument = get_instrument("CRUDEOIL")
     # An options expiry between the two contracts should resolve to the September future.
     result = _futures_price(fake, instrument, date(2026, 8, 25))
-    assert result == 6250.0
+    assert result == (6250.0, 6200.0)
 
     kite_feed.clear_instrument_cache()
     result_near = _futures_price(fake, instrument, date(2026, 8, 10))
-    assert result_near == 6100.0
+    assert result_near == (6100.0, 6050.0)
 
 
-def _build_fake_commodity_fixtures(spot=6200.0, expiry=None):
+def _build_fake_commodity_fixtures(spot=6200.0, expiry=None, prev_close=6150.0):
     from app.data.instruments import get_instrument
 
     instrument = get_instrument("CRUDEOIL")
     expiry = expiry or (date.today() + timedelta(days=15))
     strikes = [6100, 6150, 6200, 6250, 6300]
     mcx_rows = [_fut_row(expiry + timedelta(days=5), "CRUDEOIL26AUGFUT", 1)]
-    quote_map = {}
+    quote_map = {"MCX:CRUDEOIL26AUGFUT": {"last_price": spot, "ohlc": {"close": prev_close}}}
     for strike in strikes:
         for side in ("CE", "PE"):
             symbol = f"CRUDEOIL_{strike}_{side}"
@@ -438,11 +445,10 @@ def _build_fake_commodity_fixtures(spot=6200.0, expiry=None):
 
 def test_generate_option_chain_for_commodity_uses_futures_underlying(monkeypatch):
     spot = 6210.0
-    mcx_rows, quote_map, expiry = _build_fake_commodity_fixtures(spot=spot)
+    mcx_rows, quote_map, expiry = _build_fake_commodity_fixtures(spot=spot, prev_close=6150.0)
     fake = FakeKite(
         nfo_rows=[], spot_ltp=0.0, quote_map=quote_map,
         extra_dumps={"MCX": mcx_rows},
-        ltp_map={"MCX:CRUDEOIL26AUGFUT": spot},
     )
     monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
     kite_feed.clear_instrument_cache()
@@ -451,6 +457,7 @@ def test_generate_option_chain_for_commodity_uses_futures_underlying(monkeypatch
 
     assert chain.symbol == "CRUDEOIL"
     assert chain.spot == spot
+    assert chain.prev_close == 6150.0
     assert len(chain.rows) == 3
     for row in chain.rows:
         # Loose tolerance: the fixture's quotes were built at a fixed t while

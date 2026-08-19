@@ -120,6 +120,7 @@ def option_chain(symbol: str, expiry: date | None = None, num_strikes: int = 21)
     return OptionChainOut(
         symbol=chain.symbol, spot=chain.spot, expiry=chain.expiry, timestamp=chain.timestamp,
         time_to_expiry_years=chain.time_to_expiry_years, risk_free_rate=chain.risk_free_rate,
+        prev_close=chain.prev_close,
         rows=[_chain_row_out(r) for r in chain.rows],
     )
 

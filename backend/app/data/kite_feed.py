@@ -154,22 +154,28 @@ def _quote_key(instrument: Instrument, tradingsymbol: str) -> str:
     return f"{instrument.kite_options_exchange}:{tradingsymbol}"
 
 
-def _ltp(kite, key: str) -> float:
+def _quote_underlying(kite, key: str) -> tuple[float, float]:
+    """(last_price, previous_close) for a spot/futures instrument.
+    ``kite.quote()`` (unlike ``kite.ltp()``) includes ``ohlc.close``, which
+    is the *previous trading day's* close — exactly what's needed for a
+    day-over-day change figure, and not derivable from LTP alone.
+    """
     try:
-        resp = kite.ltp(key)
+        resp = kite.quote(key)
     except KiteException as exc:
-        raise KiteFeedError(f"Failed to fetch LTP for {key}: {exc}") from exc
+        raise KiteFeedError(f"Failed to fetch quote for {key}: {exc}") from exc
     try:
-        return float(resp[key]["last_price"])
+        entry = resp[key]
+        return float(entry["last_price"]), float(entry["ohlc"]["close"])
     except KeyError as exc:
-        raise KiteFeedError(f"Unexpected LTP response shape for {key}: {resp}") from exc
+        raise KiteFeedError(f"Unexpected quote response shape for {key}: {resp}") from exc
 
 
-def _futures_price(kite, instrument: Instrument, options_expiry: date) -> float:
+def _futures_price(kite, instrument: Instrument, options_expiry: date) -> tuple[float, float]:
     """Commodity options are options on a futures contract, not a spot
     index — resolve the futures contract this options expiry references
-    (the nearest one expiring on/after the options expiry) and use its LTP
-    as the pricing underlying.
+    (the nearest one expiring on/after the options expiry) and use its
+    quote (last price, previous close) as the pricing underlying.
     """
     dump = _instrument_dump(instrument.kite_spot_exchange)
     fut_rows = [
@@ -183,14 +189,14 @@ def _futures_price(kite, instrument: Instrument, options_expiry: date) -> float:
     candidates = sorted(fut_rows, key=lambda r: _as_date(r["expiry"]))
     match = next((r for r in candidates if _as_date(r["expiry"]) >= options_expiry), candidates[-1])
     key = f"{instrument.kite_spot_exchange}:{match['tradingsymbol']}"
-    return _ltp(kite, key)
+    return _quote_underlying(kite, key)
 
 
-def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> float:
+def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> tuple[float, float]:
     if instrument.is_commodity:
         return _futures_price(kite, instrument, resolved_expiry)
     key = f"{instrument.kite_spot_exchange}:{instrument.kite_spot_tradingsymbol}"
-    return _ltp(kite, key)
+    return _quote_underlying(kite, key)
 
 
 def _quote_to_leg(
@@ -252,7 +258,7 @@ def generate_option_chain(
     cutoff = _effective_expiry_cutoff_date(instrument, as_of)
     resolved_expiry = _pick_expiry(expiries, expiry, cutoff)
 
-    spot = _underlying_price(kite, instrument, resolved_expiry)
+    spot, prev_close = _underlying_price(kite, instrument, resolved_expiry)
     strike_map = _select_strike_rows(option_rows, resolved_expiry, spot, num_strikes)
 
     expiry_dt = datetime.combine(resolved_expiry, instrument.session_end)
@@ -296,6 +302,7 @@ def generate_option_chain(
         timestamp=as_of,
         time_to_expiry_years=t,
         risk_free_rate=RISK_FREE_RATE,
+        prev_close=prev_close,
         rows=rows,
     )
 
