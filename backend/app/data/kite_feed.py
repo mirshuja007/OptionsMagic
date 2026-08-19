@@ -135,9 +135,19 @@ def _pick_expiry(expiries: list[date], requested: date | None, as_of: date) -> d
     return upcoming[0]
 
 
-def _select_strike_rows(rows: list[dict], expiry: date, spot: float, num_strikes: int) -> dict[float, dict[str, dict]]:
-    """{strike: {"CE": instrument_row, "PE": instrument_row}} for the
-    ``num_strikes`` strikes nearest the money, restricted to ``expiry``.
+def _select_strike_rows(
+    rows: list[dict],
+    expiry: date,
+    spot: float,
+    instrument: Instrument,
+    num_strikes: int | None = None,
+) -> dict[float, dict[str, dict]]:
+    """{strike: {"CE": instrument_row, "PE": instrument_row}} restricted to
+    ``expiry``. With an explicit ``num_strikes``, picks that many strikes
+    nearest the money. Otherwise covers the instrument's default +/- % band
+    around spot (5% equities/indices, 10% commodities — see
+    ``Instrument.strike_range_pct``), among whatever strikes are actually
+    listed.
     """
     by_strike: dict[float, dict[str, dict]] = {}
     for r in rows:
@@ -149,8 +159,14 @@ def _select_strike_rows(rows: list[dict], expiry: date, spot: float, num_strikes
     if not complete_strikes:
         raise KiteFeedError(f"No complete CE/PE strike pairs found for expiry {expiry}")
 
-    nearest = sorted(complete_strikes, key=lambda k: abs(k - spot))[: max(num_strikes, 1)]
-    return {k: by_strike[k] for k in sorted(nearest)}
+    if num_strikes is not None:
+        selected = sorted(complete_strikes, key=lambda k: abs(k - spot))[: max(num_strikes, 1)]
+    else:
+        band = spot * instrument.strike_range_pct
+        selected = [k for k in complete_strikes if spot - band <= k <= spot + band]
+        if not selected:
+            selected = [min(complete_strikes, key=lambda k: abs(k - spot))]
+    return {k: by_strike[k] for k in sorted(selected)}
 
 
 def _quote_key(instrument: Instrument, tradingsymbol: str) -> str:
@@ -246,7 +262,7 @@ def _quote_to_leg(
 def generate_option_chain(
     symbol: str,
     expiry: date | None = None,
-    num_strikes: int = 21,
+    num_strikes: int | None = None,
     as_of: datetime | None = None,
 ) -> OptionChain:
     instrument = get_instrument(symbol)
@@ -262,7 +278,7 @@ def generate_option_chain(
     resolved_expiry = _pick_expiry(expiries, expiry, cutoff)
 
     spot, prev_close = _underlying_price(kite, instrument, resolved_expiry)
-    strike_map = _select_strike_rows(option_rows, resolved_expiry, spot, num_strikes)
+    strike_map = _select_strike_rows(option_rows, resolved_expiry, spot, instrument, num_strikes)
 
     expiry_dt = datetime.combine(resolved_expiry, instrument.session_end)
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)

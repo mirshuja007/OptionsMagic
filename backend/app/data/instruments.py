@@ -92,6 +92,15 @@ class Instrument:
         return 0.03 if self.is_index else 0.05
 
     @property
+    def strike_range_pct(self) -> float:
+        """Default option-chain coverage each side of spot, as a fraction of
+        spot, when the caller doesn't request a specific strike count.
+        Commodities (esp. crude) swing materially more than equity indices
+        intraday, so they get a wider default band.
+        """
+        return 0.10 if self.is_commodity else 0.05
+
+    @property
     def session_start(self) -> time:
         """Approximate; MCX's evening session in particular varies by
         commodity and by US daylight-saving time — treat as illustrative.

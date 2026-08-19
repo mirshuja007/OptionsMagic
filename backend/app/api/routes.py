@@ -85,9 +85,9 @@ def data_provider():
     return {"provider": get_active_provider()}
 
 
-def _get_chain(symbol: str, expiry: date | None = None):
+def _get_chain(symbol: str, expiry: date | None = None, num_strikes: int | None = None):
     try:
-        return generate_option_chain(symbol.upper(), expiry=expiry)
+        return generate_option_chain(symbol.upper(), expiry=expiry, num_strikes=num_strikes)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KiteAuthError as exc:
@@ -115,8 +115,8 @@ def expiries(symbol: str):
 
 
 @router.get("/option-chain/{symbol}", response_model=OptionChainOut)
-def option_chain(symbol: str, expiry: date | None = None, num_strikes: int = 21):
-    chain = _get_chain(symbol, expiry)
+def option_chain(symbol: str, expiry: date | None = None, num_strikes: int | None = None):
+    chain = _get_chain(symbol, expiry, num_strikes)
     return OptionChainOut(
         symbol=chain.symbol, spot=chain.spot, expiry=chain.expiry, timestamp=chain.timestamp,
         time_to_expiry_years=chain.time_to_expiry_years, risk_free_rate=chain.risk_free_rate,

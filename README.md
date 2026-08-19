@@ -72,6 +72,11 @@ different instrument, priced with a different convention:
 - **Margin**: commodities get a wider SPAN price-scan range (9% vs. 3.5%
   for indices) — crude oil in particular moves far more than an equity
   index (it went briefly negative in April 2020).
+- **Option chain strike coverage**: when no explicit `num_strikes` is
+  requested, the chain covers a default band around spot — 5% either way
+  for equity/index underlyings, 10% either way for commodities (same
+  higher-volatility reasoning as the margin range above). See
+  `Instrument.strike_range_pct`.
 - **Expiry cadence**: NSE/BSE have changed weekly-expiry rules twice in the
   last two years (SEBI consolidated each exchange to one weekly-expiry
   index, then shifted the day). As of the last time this was verified

@@ -46,7 +46,7 @@ def get_risk_free_rate() -> float:
 def generate_option_chain(
     symbol: str,
     expiry: date | None = None,
-    num_strikes: int = 21,
+    num_strikes: int | None = None,
     as_of: datetime | None = None,
 ):
     return _module().generate_option_chain(symbol, expiry=expiry, num_strikes=num_strikes, as_of=as_of)

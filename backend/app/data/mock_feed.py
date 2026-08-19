@@ -138,7 +138,7 @@ def generate_option_chain(
     symbol: str,
     expiry: date | None = None,
     spot_override: float | None = None,
-    num_strikes: int = 21,
+    num_strikes: int | None = None,
     as_of: datetime | None = None,
     seed: int | None = None,
 ) -> OptionChain:
@@ -163,7 +163,13 @@ def generate_option_chain(
 
     step = instrument.strike_step
     atm_strike = round(spot / step) * step
-    half = num_strikes // 2
+    if num_strikes is not None:
+        half = num_strikes // 2
+    else:
+        # No explicit count requested — cover the instrument's default
+        # +/- % band around spot (5% equities/indices, 10% commodities;
+        # see Instrument.strike_range_pct) instead of a fixed strike count.
+        half = max(int(round(spot * instrument.strike_range_pct / step)), 1)
 
     rows: list[ChainRow] = []
     for i in range(-half, half + 1):

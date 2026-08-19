@@ -80,6 +80,7 @@ def _instrument_row(strike: float, instrument_type: str, expiry: date, tradingsy
 
 
 def test_select_strike_rows_filters_expiry_and_picks_nearest_to_spot():
+    nifty = get_instrument("NIFTY")
     expiry = date(2026, 8, 20)
     other_expiry = date(2026, 8, 27)
     rows = []
@@ -90,7 +91,7 @@ def test_select_strike_rows_filters_expiry_and_picks_nearest_to_spot():
     rows.append(_instrument_row(24750, "CE", other_expiry, "NIFTY26827_24750CE"))
     rows.append(_instrument_row(24750, "PE", other_expiry, "NIFTY26827_24750PE"))
 
-    selected = _select_strike_rows(rows, expiry, spot=24810.0, num_strikes=3)
+    selected = _select_strike_rows(rows, expiry, spot=24810.0, instrument=nifty, num_strikes=3)
 
     assert set(selected.keys()) == {24700.0, 24800.0, 24900.0}
     for strike, legs in selected.items():
@@ -99,10 +100,49 @@ def test_select_strike_rows_filters_expiry_and_picks_nearest_to_spot():
 
 
 def test_select_strike_rows_requires_complete_ce_pe_pairs():
+    nifty = get_instrument("NIFTY")
     expiry = date(2026, 8, 20)
     rows = [_instrument_row(24800, "CE", expiry, "NIFTY24800CE")]  # no matching PE
     with pytest.raises(KiteFeedError):
-        _select_strike_rows(rows, expiry, spot=24800.0, num_strikes=3)
+        _select_strike_rows(rows, expiry, spot=24800.0, instrument=nifty, num_strikes=3)
+
+
+def test_select_strike_rows_without_num_strikes_uses_instrument_band():
+    """No explicit num_strikes: covers the instrument's default +/- % band
+    around spot (5% for NIFTY, an equity index) among listed strikes,
+    instead of a fixed count.
+    """
+    nifty = get_instrument("NIFTY")
+    expiry = date(2026, 8, 20)
+    spot = 24800.0
+    band = spot * nifty.strike_range_pct  # 1240.0
+    strikes = [spot - band - 100, spot - band + 50, spot, spot + band - 50, spot + band + 100]
+    rows = []
+    for strike in strikes:
+        rows.append(_instrument_row(strike, "CE", expiry, f"NIFTY_{strike}_CE"))
+        rows.append(_instrument_row(strike, "PE", expiry, f"NIFTY_{strike}_PE"))
+
+    selected = _select_strike_rows(rows, expiry, spot=spot, instrument=nifty)
+
+    assert set(selected.keys()) == {spot - band + 50, spot, spot + band - 50}
+
+
+def test_select_strike_rows_without_num_strikes_uses_wider_band_for_commodities():
+    crude = get_instrument("CRUDEOIL")
+    expiry = date(2026, 8, 20)
+    spot = 7800.0
+    equity_band = spot * 0.05  # what an equity index would use
+    commodity_band = spot * crude.strike_range_pct  # 10% — wider
+    just_outside_equity_band = spot + equity_band + 50
+    assert just_outside_equity_band <= spot + commodity_band  # sanity check on the fixture
+    rows = []
+    for strike in (spot, just_outside_equity_band):
+        rows.append(_instrument_row(strike, "CE", expiry, f"CRUDE_{strike}_CE"))
+        rows.append(_instrument_row(strike, "PE", expiry, f"CRUDE_{strike}_PE"))
+
+    selected = _select_strike_rows(rows, expiry, spot=spot, instrument=crude)
+
+    assert just_outside_equity_band in selected  # would be dropped at the narrower equity band
 
 
 def test_quote_to_leg_solves_iv_consistent_with_black_scholes():
