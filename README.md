@@ -15,8 +15,10 @@ placing the actual order is a manual step you take in your broker. See
 ## Architecture
 
 ```
-backend/   FastAPI + Python — analytics, constraint solver, margin, backtest, execution
-frontend/  Next.js (App Router) + TypeScript + Tailwind — Research & Strategy Command UI
+backend/          FastAPI + Python — analytics, constraint solver, margin, backtest, execution
+frontend/          Next.js (App Router) + TypeScript + Tailwind — Research & Strategy Command UI
+streamlit_app.py  Alternate frontend for Streamlit Community Cloud — see "Deploying to
+streamlit_pages/  Streamlit Community Cloud" below. Same backend/app/* code, different UI.
 ```
 
 ### Backend (`backend/app`)
@@ -223,7 +225,7 @@ uvicorn app.main:app --reload --port 8000
 API docs at `http://localhost:8000/docs`. Run the test suite:
 
 ```bash
-pytest -q   # 125 tests
+pytest -q   # 158 tests
 ```
 
 ### Frontend
@@ -235,6 +237,63 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api npm run dev
 ```
 
 Open `http://localhost:3000` (redirects to `/research`).
+
+## Deploying to Streamlit Community Cloud
+
+The FastAPI backend + Next.js frontend above is two processes, which
+Streamlit Community Cloud can't host (it runs exactly one Python script).
+`streamlit_app.py` (repo root) is a from-scratch **alternate frontend** for
+exactly that situation: it re-implements Research Mode and Strategy Command
+Mode as a Streamlit app that imports the backend's `app.*` modules directly
+in-process — same analytics/solver/margin code as the Next.js app, calling
+Python functions instead of HTTP endpoints, so there's no separate backend
+service to stand up. It's a genuinely different UI (Streamlit's own widgets,
+not the Tailwind design), not a proxy in front of the Next.js one.
+
+```
+streamlit_app.py          entry point — page nav, secrets sync, provider badge
+streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
+streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
+streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
+requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt
+.streamlit/config.toml        dark theme matching the Next.js palette
+```
+
+**To deploy:** on [share.streamlit.io](https://share.streamlit.io), point a
+new app at this repo/branch with main file path `streamlit_app.py` (repo
+root — not inside `backend/` or `streamlit_pages/`).
+
+**Secrets** (Settings → Secrets, TOML format) — all optional, mirroring
+`backend/.env.example`:
+
+```toml
+MARKET_DATA_PROVIDER = "mock"   # or "kite" for live data — see caveat below
+KITE_API_KEY = ""
+KITE_ACCESS_TOKEN = ""
+```
+
+Leaving these unset defaults to `mock`, same as running the backend locally
+with no `.env`.
+
+**Kite Connect on a public app — read this before setting `MARKET_DATA_PROVIDER=kite`:**
+Streamlit Community Cloud apps are public URLs by default (no built-in
+per-user access control on the free tier). Two things follow from that:
+
+1. **The daily token refresh doesn't happen on its own.** Kite access
+   tokens expire every day (~6 AM IST); refreshing one requires running
+   `backend/scripts/kite_login.py` — a real Kite login (plus your TOTP
+   secret if automated) — which nothing on Streamlit Cloud does for you.
+   Practically: run `kite_login.py` locally each trading morning and paste
+   the fresh `KITE_ACCESS_TOKEN` into the app's Secrets panel, or accept
+   that live mode goes stale (raises `KiteAuthError`, surfaced as a clean
+   `st.error`, not a crash) until you do.
+2. **Anyone with the app's URL can drive it against your live Kite quotes
+   and read-only margin lookups** (option chain, Greeks, the "Verify Real
+   Margin" button) using your API key/token — there's no order-placement
+   path anywhere in this app (`PaperBroker` is simulated), so the actual
+   exposure is API-quota consumption and letting strangers poke around
+   your research tool, not account compromise. Still, default to `mock`
+   unless you specifically want that and have thought it through.
 
 ## Key API endpoints
 

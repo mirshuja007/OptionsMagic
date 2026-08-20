@@ -1,0 +1,19 @@
+# Root-level requirements.txt for the Streamlit Community Cloud deployment
+# (streamlit_app.py). Streamlit Cloud installs from whichever
+# requirements.txt sits next to the main file path — this one, not
+# backend/requirements.txt (that one's for running the FastAPI backend/
+# Next.js frontend combo directly; see README.md).
+#
+# streamlit_app.py imports backend/app/* modules in-process (see
+# streamlit_pages/common.py), so this is the backend's dependency set plus
+# the Streamlit-frontend-only additions (streamlit, plotly, pandas) minus
+# what only the FastAPI *server* itself needs (fastapi, uvicorn, httpx) —
+# nothing here calls those directly, only the analytics/solver/feed code.
+numpy==2.1.1
+kiteconnect==5.2.1
+python-dotenv==1.0.1
+pyotp==2.10.0
+requests==2.34.2
+streamlit==1.40.1
+plotly==5.24.1
+pandas==2.2.3
