@@ -4,6 +4,11 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import type { LiveMarginResponse, StrategyResult } from "@/lib/types";
 
+// Matches app.strategy.legs._UNLIMITED_RISK_SENTINEL (1e12) with margin for float noise —
+// payoff_extrema uses this to mark a truly unbounded profit/loss tail (e.g. a ratio spread's
+// naked excess leg), distinct from a merely large-but-finite kink value.
+const UNLIMITED_THRESHOLD = 1e11;
+
 function fmtCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
@@ -21,7 +26,9 @@ export default function StrategyResults({ symbol, results }: { symbol: string; r
       <div className="card text-sm text-muted">
         No strategies matched your constraints. Try relaxing the min probability of profit, max loss cap
         (often the binding one — a spread narrower than one strike step already risks more than a small cap
-        allows), target yield, or margin cap.
+        allows; check &quot;Unlimited&quot; to remove it entirely), target yield, max profit ceiling (a high
+        target yield on a large-margin trade needs a large max profit — set that to &quot;Unlimited&quot; too if
+        it&apos;s the culprit), or margin cap.
       </div>
     );
   }
@@ -70,9 +77,12 @@ function StrategyCard({ rank, symbol, result: r }: { rank: number; symbol: strin
 
       <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
         <Metric label="PoP" value={`${(r.probability_of_profit * 100).toFixed(1)}%`} />
-        <Metric label="Yield on Margin" value={`${(r.yield_pct * 100).toFixed(2)}%`} />
-        <Metric label="Max Profit" value={fmtCurrency(r.payoff.max_profit)} tone="positive" />
-        <Metric label="Max Loss" value={fmtCurrency(r.payoff.max_loss)} tone="negative" />
+        <Metric
+          label="Yield on Margin"
+          value={r.payoff.max_profit > UNLIMITED_THRESHOLD ? "Unlimited" : `${(r.yield_pct * 100).toFixed(2)}%`}
+        />
+        <Metric label="Max Profit" value={r.payoff.max_profit > UNLIMITED_THRESHOLD ? "Unlimited" : fmtCurrency(r.payoff.max_profit)} tone="positive" />
+        <Metric label="Max Loss" value={r.payoff.max_loss < -UNLIMITED_THRESHOLD ? "Unlimited" : fmtCurrency(r.payoff.max_loss)} tone="negative" />
         <Metric label="Margin Blocked (est.)" value={fmtCurrency(r.margin.total_margin)} />
         <Metric label="Net Entry Credit" value={fmtCurrency(r.margin.net_entry_credit)} />
         <Metric label="Sharpe" value={r.sharpe.toFixed(3)} />

@@ -35,6 +35,23 @@ def test_naked_short_put_has_bounded_upside_unlimited_ish_downside():
     assert extrema.max_loss < 0
 
 
+def test_ratio_call_spread_unlimited_risk_is_a_loss_not_a_profit():
+    # Regression: payoff_extrema used to treat ANY non-flat tail as
+    # "unlimited profit", regardless of the slope's actual sign. A 1x2 call
+    # ratio spread (1 long + 2 short above it) has a *falling* upside tail —
+    # net short exposure above the short strike means unbounded LOSS as
+    # spot rises, not unbounded profit. max_profit must stay finite (capped
+    # at the best kink) and max_loss must carry the sentinel instead.
+    long_leg = Leg(OptionType.CALL, 24800.0, Side.LONG, 1, entry_price=150.0, iv=0.12)
+    short_leg = Leg(OptionType.CALL, 24950.0, Side.SHORT, 2, entry_price=90.0, iv=0.12)
+    extrema = payoff_extrema([long_leg, short_leg], lot_size=75)
+
+    assert extrema.unlimited_upside_risk
+    assert not extrema.unlimited_downside_risk
+    assert extrema.max_profit < 1e11  # finite, not the unlimited-risk sentinel
+    assert extrema.max_loss <= -1e11  # the sentinel, not a finite kink value
+
+
 def test_net_entry_cashflow_credit_spread_is_positive():
     legs = _bull_put_spread()
     credit = net_entry_cashflow(legs, lot_size=75)

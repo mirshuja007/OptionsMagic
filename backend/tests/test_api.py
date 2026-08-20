@@ -116,6 +116,22 @@ def test_strategy_discover_endpoint():
     assert len(body["results"]) <= 3
 
 
+def test_strategy_discover_endpoint_accepts_unlimited_caps():
+    # Omitting max_profit_cap/max_loss_cap means "Unlimited" (None) — the
+    # request must validate and run, not 422.
+    payload = {
+        "symbol": "NIFTY",
+        "constraints": {
+            "min_probability_of_profit": 0.5,
+            "min_yield_pct": 0.0,
+            "margin_cap": 500000,
+        },
+    }
+    r = client.post("/api/strategy/discover", json=payload)
+    assert r.status_code == 200
+    assert r.json()["symbol"] == "NIFTY"
+
+
 def test_instruments_endpoint_includes_commodities_with_asset_class():
     r = client.get("/api/instruments")
     assert r.status_code == 200

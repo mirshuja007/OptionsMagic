@@ -62,8 +62,8 @@ _CUSHION_CAP_PCT = 0.02
 class StrategyConstraints:
     min_pop: float  # e.g. 0.80 for 80%
     min_yield_pct: float  # e.g. 0.01 for 1% of margin blocked
-    max_profit_cap: float  # rupee ceiling
-    max_loss_cap: float  # rupee cap, positive number
+    max_profit_cap: float | None  # rupee ceiling; None = unlimited (no ceiling check)
+    max_loss_cap: float | None  # rupee cap, positive number; None = unlimited (allows undefined-risk candidates through)
     margin_cap: float  # rupee ceiling on margin blocked
     n_paths_screen: int = 4000
     n_paths_final: int = 50_000
@@ -263,9 +263,9 @@ def _score_candidate(
 ) -> StrategyResult | None:
     legs = candidate.legs
     extrema = payoff_extrema(legs, instrument.lot_size)
-    if extrema.max_profit > constraints.max_profit_cap:
+    if constraints.max_profit_cap is not None and extrema.max_profit > constraints.max_profit_cap:
         return None
-    if extrema.max_loss < -constraints.max_loss_cap:
+    if constraints.max_loss_cap is not None and extrema.max_loss < -constraints.max_loss_cap:
         return None
 
     margin = estimate_margin(legs, instrument, chain.spot, chain.time_to_expiry_years, chain.risk_free_rate)

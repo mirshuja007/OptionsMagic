@@ -77,6 +77,50 @@ def test_solver_returns_sorted_by_composite_score_desc():
     assert scores == sorted(scores, reverse=True)
 
 
+def test_max_loss_cap_none_allows_undefined_risk_candidates_through():
+    # Ratio spreads have genuinely unbounded downside on the excess short
+    # leg (payoff_extrema returns the -1e12 sentinel for that) — any finite
+    # max_loss_cap always rejects them (see generator.py's ratio_spreads
+    # docstring). max_loss_cap=None ("Unlimited" in the UI) is the only way
+    # to actually see one.
+    chain = generate_option_chain("NIFTY", seed=31)
+    instrument = get_instrument("NIFTY")
+    capped = StrategyConstraints(
+        min_pop=0.0, min_yield_pct=0.0, max_profit_cap=None, max_loss_cap=2_000_000, margin_cap=1_000_000,
+        n_paths_screen=1000, n_paths_final=1000, strategy_types=frozenset({"ratio_spread_put"}),
+    )
+    uncapped = StrategyConstraints(
+        min_pop=0.0, min_yield_pct=0.0, max_profit_cap=None, max_loss_cap=None, margin_cap=1_000_000,
+        n_paths_screen=1000, n_paths_final=1000, strategy_types=frozenset({"ratio_spread_put"}),
+    )
+    assert discover_strategies(chain, instrument, capped, top_n=5) == []
+    uncapped_results = discover_strategies(chain, instrument, uncapped, top_n=5)
+    assert len(uncapped_results) > 0
+    assert all(r.payoff.unlimited_downside_risk for r in uncapped_results)
+
+
+def test_max_profit_cap_none_avoids_conflict_with_min_yield_pct():
+    # yield_pct = max_profit / margin, so a high min_yield_pct on a
+    # high-margin candidate forces a large max_profit — a finite
+    # max_profit_cap can then reject every candidate that clears the yield
+    # floor. max_profit_cap=None (unlimited) removes that ceiling entirely,
+    # letting min_yield_pct be the only thing governing profit magnitude.
+    chain = generate_option_chain("NIFTY", seed=32)
+    instrument = get_instrument("NIFTY")
+    conflicting = StrategyConstraints(
+        min_pop=0.0, min_yield_pct=0.5, max_profit_cap=200, max_loss_cap=None, margin_cap=1_000_000,
+        n_paths_screen=1000, n_paths_final=1000,
+    )
+    unlimited_profit = StrategyConstraints(
+        min_pop=0.0, min_yield_pct=0.5, max_profit_cap=None, max_loss_cap=None, margin_cap=1_000_000,
+        n_paths_screen=1000, n_paths_final=1000,
+    )
+    assert discover_strategies(chain, instrument, conflicting, top_n=5) == []
+    results = discover_strategies(chain, instrument, unlimited_profit, top_n=5)
+    assert len(results) > 0
+    assert all(r.yield_pct >= 0.5 - 1e-6 for r in results)
+
+
 def test_solver_with_impossible_constraints_returns_empty():
     chain = generate_option_chain("NIFTY", seed=9)
     instrument = get_instrument("NIFTY")

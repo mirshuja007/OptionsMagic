@@ -189,8 +189,8 @@ export type DirectionBias = "auto" | "bullish" | "bearish" | "neutral";
 export interface StrategyConstraintsIn {
   min_probability_of_profit: number;
   min_yield_pct: number;
-  max_profit_cap: number;
-  max_loss_cap: number;
+  max_profit_cap: number | null; // null = unlimited (no ceiling)
+  max_loss_cap: number | null; // null = unlimited (allows undefined-risk candidates through)
   margin_cap: number;
   ranking_mode: RankingMode;
   strategy_types: StrategyType[] | null;

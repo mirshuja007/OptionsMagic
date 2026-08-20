@@ -100,7 +100,13 @@ def payoff_extrema(legs: list[Leg], lot_size: int) -> PayoffExtrema:
     """Exact max profit / max loss of the combo at expiry. The payoff of a
     portfolio of European options is piecewise-linear in the terminal spot,
     so extrema occur either at strikes (kink points) or, if a tail slope is
-    non-zero, at +/- infinity (unlimited risk/reward).
+    non-zero, at +/- infinity in whichever direction that slope points.
+
+    A non-flat tail isn't automatically "unlimited profit" — a ratio spread
+    with more short legs than long on one side (e.g. 1 long call + 2 short
+    calls) has a *falling* tail beyond the short strike: unbounded loss, not
+    unbounded profit. The sign of the tail slope, not just its non-flatness,
+    determines which side (max_profit or max_loss) actually goes unbounded.
     """
     strikes = sorted({leg.strike for leg in legs})
     if not strikes:
@@ -111,26 +117,29 @@ def payoff_extrema(legs: list[Leg], lot_size: int) -> PayoffExtrema:
     kinks = np.array(strikes + [lo_bound, hi_bound], dtype=float)
     kink_pnl = payoff_at_expiry(legs, lot_size, kinks)
 
-    # Detect unbounded tails by comparing the slope just outside the outer kinks.
+    # Detect unbounded tails, and their direction, by comparing the slope
+    # just outside the outer kinks. Moving further down (lo_bound -> far_lo)
+    # or further up (hi_bound -> far_hi): a rising tail means profit grows
+    # without bound in that direction; a falling tail means loss does.
     far_lo = max(lo_bound * 0.1, 1e-3)
     far_hi = hi_bound * 2.0
     pnl_lo, pnl_far_lo = payoff_at_expiry(legs, lot_size, np.array([lo_bound, far_lo]))
     pnl_hi, pnl_far_hi = payoff_at_expiry(legs, lot_size, np.array([hi_bound, far_hi]))
 
-    unlimited_downside = not math.isclose(pnl_lo, pnl_far_lo, rel_tol=1e-6, abs_tol=1e-6)
-    unlimited_upside = not math.isclose(pnl_hi, pnl_far_hi, rel_tol=1e-6, abs_tol=1e-6)
+    downside_flat = math.isclose(pnl_lo, pnl_far_lo, rel_tol=1e-6, abs_tol=1e-6)
+    upside_flat = math.isclose(pnl_hi, pnl_far_hi, rel_tol=1e-6, abs_tol=1e-6)
 
-    max_profit = float(np.max(kink_pnl)) if not unlimited_upside else _UNLIMITED_RISK_SENTINEL
-    max_loss = float(np.min(kink_pnl)) if not (unlimited_downside or unlimited_upside) else -_UNLIMITED_RISK_SENTINEL
-    if unlimited_downside and not unlimited_upside:
-        max_loss = -_UNLIMITED_RISK_SENTINEL
-    if unlimited_upside:
-        max_profit = _UNLIMITED_RISK_SENTINEL
-        max_loss = float(np.min(kink_pnl)) if not unlimited_downside else -_UNLIMITED_RISK_SENTINEL
+    unlimited_downside_loss = not downside_flat and pnl_far_lo < pnl_lo
+    unlimited_downside_profit = not downside_flat and pnl_far_lo > pnl_lo
+    unlimited_upside_loss = not upside_flat and pnl_far_hi < pnl_hi
+    unlimited_upside_profit = not upside_flat and pnl_far_hi > pnl_hi
+
+    max_profit = _UNLIMITED_RISK_SENTINEL if (unlimited_downside_profit or unlimited_upside_profit) else float(np.max(kink_pnl))
+    max_loss = -_UNLIMITED_RISK_SENTINEL if (unlimited_downside_loss or unlimited_upside_loss) else float(np.min(kink_pnl))
 
     return PayoffExtrema(
         max_profit=max_profit,
         max_loss=max_loss,
-        unlimited_upside_risk=unlimited_upside,
-        unlimited_downside_risk=unlimited_downside,
+        unlimited_upside_risk=unlimited_upside_loss or unlimited_upside_profit,
+        unlimited_downside_risk=unlimited_downside_loss or unlimited_downside_profit,
     )

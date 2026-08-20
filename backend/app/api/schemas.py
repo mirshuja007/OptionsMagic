@@ -103,8 +103,8 @@ class LegOut(BaseModel):
 class StrategyConstraintsIn(BaseModel):
     min_probability_of_profit: float = Field(0.8, ge=0, le=1)
     min_yield_pct: float = Field(0.01, ge=0)
-    max_profit_cap: float = Field(gt=0)
-    max_loss_cap: float = Field(gt=0)
+    max_profit_cap: float | None = Field(default=None, gt=0)  # None = unlimited (no ceiling)
+    max_loss_cap: float | None = Field(default=None, gt=0)  # None = unlimited (allows undefined-risk candidates)
     margin_cap: float = Field(gt=0)
     ranking_mode: Literal["yield", "balanced", "safety"] = "balanced"
     # Keep this literal list in sync with app.strategy.generator.ALL_STRATEGY_TYPES.

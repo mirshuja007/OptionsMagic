@@ -32,7 +32,9 @@ export default function StrategyForm({
   const [minPop, setMinPop] = useState(80);
   const [minYield, setMinYield] = useState(1.0);
   const [maxProfit, setMaxProfit] = useState(5000);
+  const [maxProfitUnlimited, setMaxProfitUnlimited] = useState(false);
   const [maxLoss, setMaxLoss] = useState(3000);
+  const [maxLossUnlimited, setMaxLossUnlimited] = useState(false);
   const [marginCap, setMarginCap] = useState(500000);
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -69,8 +71,8 @@ export default function StrategyForm({
       constraints: {
         min_probability_of_profit: minPop / 100,
         min_yield_pct: minYield / 100,
-        max_profit_cap: maxProfit,
-        max_loss_cap: maxLoss,
+        max_profit_cap: maxProfitUnlimited ? null : maxProfit,
+        max_loss_cap: maxLossUnlimited ? null : maxLoss,
         margin_cap: marginCap,
         ranking_mode: rankingMode,
         strategy_types: allSelected ? null : Array.from(enabledTypes),
@@ -92,8 +94,24 @@ export default function StrategyForm({
 
       <Field label="Minimum Probability of Profit (%)" value={minPop} onChange={setMinPop} min={1} max={99} />
       <Field label="Target Yield on Margin (%)" value={minYield} onChange={setMinYield} min={0} step={0.1} />
-      <Field label="Max Profit Ceiling (₹)" value={maxProfit} onChange={setMaxProfit} min={0} step={100} />
-      <Field label="Max Loss Cap (₹)" value={maxLoss} onChange={setMaxLoss} min={0} step={100} />
+      <CapField
+        label="Max Profit Ceiling (₹)"
+        value={maxProfit}
+        onChange={setMaxProfit}
+        unlimited={maxProfitUnlimited}
+        onUnlimitedChange={setMaxProfitUnlimited}
+        min={0}
+        step={100}
+      />
+      <CapField
+        label="Max Loss Cap (₹)"
+        value={maxLoss}
+        onChange={setMaxLoss}
+        unlimited={maxLossUnlimited}
+        onUnlimitedChange={setMaxLossUnlimited}
+        min={0}
+        step={100}
+      />
       <Field label="Margin Blocked Cap (₹)" value={marginCap} onChange={setMarginCap} min={0} step={1000} />
 
       <div className="flex flex-col gap-3 border-t border-border/50 pt-3">
@@ -170,7 +188,7 @@ export default function StrategyForm({
               </div>
               <p className="text-xs text-muted">
                 Ratio spreads carry undefined risk on the excess short leg, so a finite Max Loss Cap almost always
-                excludes them by design — raise that cap substantially to see any.
+                excludes them by design — check &quot;Unlimited&quot; on Max Loss Cap above to see any.
               </p>
             </div>
           </div>
@@ -216,5 +234,49 @@ function Field({
         className="rounded-md border border-border bg-panel px-3 py-2 mono"
       />
     </label>
+  );
+}
+
+function CapField({
+  label,
+  value,
+  onChange,
+  unlimited,
+  onUnlimitedChange,
+  min,
+  step = 1,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  unlimited: boolean;
+  onUnlimitedChange: (v: boolean) => void;
+  min?: number;
+  step?: number;
+}) {
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-muted">{label}</span>
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={unlimited}
+            onChange={(e) => onUnlimitedChange(e.target.checked)}
+            className="h-3.5 w-3.5 accent-accent"
+          />
+          Unlimited
+        </label>
+      </div>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        step={step}
+        disabled={unlimited}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="rounded-md border border-border bg-panel px-3 py-2 mono disabled:opacity-40"
+      />
+    </div>
   );
 }
