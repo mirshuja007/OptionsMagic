@@ -50,23 +50,14 @@ import re
 import sys
 import time
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 from kiteconnect import KiteConnect
 from kiteconnect.exceptions import KiteException
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.data.kite_auth import automated_request_token, extract_request_token  # noqa: E402
+
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
-
-
-def extract_request_token(raw: str) -> str:
-    raw = raw.strip()
-    if raw.startswith("http"):
-        query = parse_qs(urlparse(raw).query)
-        tokens = query.get("request_token")
-        if not tokens:
-            raise ValueError("No request_token query parameter found in that URL.")
-        return tokens[0]
-    return raw
 
 
 def upsert_env_var(path: Path, key: str, value: str) -> None:
@@ -91,45 +82,6 @@ def manual_request_token(kite: KiteConnect) -> str:
     print("   the token) below.\n")
     raw = input("Redirect URL or request_token: ")
     return extract_request_token(raw)
-
-
-def automated_request_token(api_key: str, user_id: str, password: str, totp_secret: str) -> str:
-    """Submits credentials + a live TOTP code directly to Zerodha's
-    (undocumented) login endpoints instead of using a browser. See the
-    module docstring's "Automated mode" section before using this.
-    """
-    import pyotp
-    import requests
-
-    session = requests.Session()
-
-    login_resp = session.post(
-        "https://kite.zerodha.com/api/login",
-        data={"user_id": user_id, "password": password},
-        timeout=10,
-    )
-    login_resp.raise_for_status()
-    request_id = login_resp.json()["data"]["request_id"]
-
-    totp_code = pyotp.TOTP(totp_secret).now()
-    twofa_resp = session.post(
-        "https://kite.zerodha.com/api/twofa",
-        data={"user_id": user_id, "request_id": request_id, "twofa_value": totp_code, "twofa_type": "totp"},
-        timeout=10,
-    )
-    twofa_resp.raise_for_status()
-
-    connect_url = f"https://kite.zerodha.com/connect/login?api_key={api_key}&v=3"
-    for _ in range(5):
-        resp = session.get(connect_url, allow_redirects=False, timeout=10)
-        if resp.status_code not in (301, 302, 303, 307, 308):
-            raise RuntimeError(f"Expected a redirect from Kite, got HTTP {resp.status_code} instead.")
-        location = resp.headers.get("Location", "")
-        if "request_token=" in location:
-            return extract_request_token(location)
-        connect_url = location
-
-    raise RuntimeError("Did not find request_token after following redirects — Kite's login flow may have changed.")
 
 
 def main() -> int:

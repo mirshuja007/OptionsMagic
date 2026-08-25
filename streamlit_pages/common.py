@@ -19,6 +19,37 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+_SECRETS_CANDIDATES = [
+    Path.home() / ".streamlit" / "secrets.toml",
+    Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml",
+]
+
+
+def _secrets_file_exists() -> bool:
+    """Streamlit renders a "No secrets found" warning banner into the app
+    the moment ``st.secrets`` is accessed with no secrets.toml present,
+    regardless of try/except around it — there's no exception to catch
+    that suppresses it, only avoiding the access in the first place.
+    """
+    return any(p.exists() for p in _SECRETS_CANDIDATES)
+
+
+def get_secret(key: str, default: str | None = None) -> str | None:
+    """Reads one key from Streamlit Secrets, or ``default`` if there's no
+    secrets.toml or the key isn't set there. Safe to call even when no
+    secrets.toml exists (see ``_secrets_file_exists``).
+    """
+    if not _secrets_file_exists():
+        return default
+
+    import streamlit as st
+
+    try:
+        value = st.secrets[key]
+    except KeyError:
+        return default
+    return str(value) if value else default
+
 
 def sync_secrets_to_env() -> None:
     """Streamlit Cloud's Secrets panel populates ``st.secrets``, not
@@ -27,29 +58,11 @@ def sync_secrets_to_env() -> None:
     at startup rather than touching backend code to special-case Streamlit.
     Running locally without a secrets.toml is a no-op here; a real ``.env``
     picked up some other way (e.g. already exported) still works normally.
-
-    Deliberately checks for a secrets.toml file directly before touching
-    ``st.secrets`` at all: Streamlit renders a "No secrets found" warning
-    banner into the app the moment ``st.secrets`` is accessed with no file
-    present, regardless of try/except around it — there's no exception to
-    catch that suppresses it, only avoiding the access in the first place.
     """
-    candidates = [
-        Path.home() / ".streamlit" / "secrets.toml",
-        Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml",
-    ]
-    if not any(p.exists() for p in candidates):
-        return
-
-    import streamlit as st
-
     for key in ("MARKET_DATA_PROVIDER", "KITE_API_KEY", "KITE_ACCESS_TOKEN"):
-        try:
-            value = st.secrets[key]
-        except KeyError:
-            continue
+        value = get_secret(key)
         if value:
-            os.environ[key] = str(value)
+            os.environ[key] = value
 
 
 def safe_call(fn, *args, **kwargs):

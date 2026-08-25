@@ -21,6 +21,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_pages.common import fmt, safe_call
+from streamlit_pages.kite_login import render_kite_login_panel
 
 GREEN = "#22c55e"
 RED = "#ef4444"
@@ -45,6 +46,7 @@ def render() -> None:
     from app.data.instruments import ALL_INSTRUMENTS
 
     st.title("Research Mode")
+    render_kite_login_panel()
 
     provider = get_active_provider()
     live = provider == "kite"

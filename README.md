@@ -254,6 +254,7 @@ not the Tailwind design), not a proxy in front of the Next.js one.
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
 streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
+streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt
 .streamlit/config.toml        dark theme matching the Next.js palette
@@ -270,6 +271,8 @@ root — not inside `backend/` or `streamlit_pages/`).
 MARKET_DATA_PROVIDER = "mock"   # or "kite" for live data — see caveat below
 KITE_API_KEY = ""
 KITE_ACCESS_TOKEN = ""
+KITE_API_SECRET = ""            # only needed to use the in-app "Login with Kite" panel below
+KITE_TOTP_SECRET = ""           # optional — see "Login with Kite" below
 ```
 
 Leaving these unset defaults to `mock`, same as running the backend locally
@@ -289,12 +292,28 @@ Streamlit Community Cloud apps are public URLs by default (no built-in
 per-user access control on the free tier). Two things follow from that:
 
 1. **The daily token refresh doesn't happen on its own.** Kite access
-   tokens expire every day (~6 AM IST); refreshing one requires running
-   `backend/scripts/kite_login.py` — a real Kite login (plus your TOTP
-   secret if automated) — which nothing on Streamlit Cloud does for you.
-   Practically: run `kite_login.py` locally each trading morning and paste
-   the fresh `KITE_ACCESS_TOKEN` into the app's Secrets panel, or accept
-   that live mode goes stale (raises `KiteAuthError`, surfaced as a clean
+   tokens expire every day (~6 AM IST). Research Mode has a "🔑 Login with
+   Kite" panel (expander at the top of the page) that does this refresh
+   in-app — enter your Zerodha User ID, password, and TOTP code (or set
+   `KITE_TOTP_SECRET` in Secrets to auto-generate the TOTP code) and it
+   exchanges a fresh login for today's access token without leaving the
+   browser tab. Your password is only ever held in that form's own input
+   for the duration of one click — it is **never** written to Secrets,
+   `session_state`, disk, or logs. Two things worth knowing about it:
+   - It updates only *this running app process's* in-memory session — it
+     can't rewrite Streamlit Cloud's platform Secrets, so a Cloud reboot or
+     redeploy needs a fresh login through the panel again.
+   - It reuses `backend/app/data/kite_auth.py`'s automated-login helper,
+     which submits your credentials to undocumented Zerodha endpoints (the
+     same approach `backend/scripts/kite_login.py --auto` uses locally) —
+     see that module's docstring for the tradeoff. `KITE_TOTP_SECRET` is
+     optional specifically so you can skip storing your TOTP seed in
+     Secrets and just type the 6-digit code each time instead.
+
+   Alternatively, skip the in-app panel entirely: run `kite_login.py`
+   locally each trading morning and paste the fresh `KITE_ACCESS_TOKEN`
+   into the app's Secrets panel. Either way, forgetting to refresh just
+   means live mode goes stale (raises `KiteAuthError`, surfaced as a clean
    `st.error`, not a crash) until you do.
 2. **Anyone with the app's URL can drive it against your live Kite quotes
    and read-only margin lookups** (option chain, Greeks, the "Verify Real
