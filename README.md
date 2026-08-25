@@ -275,6 +275,15 @@ KITE_ACCESS_TOKEN = ""
 Leaving these unset defaults to `mock`, same as running the backend locally
 with no `.env`.
 
+**Live refresh:** Research Mode has a "Live refresh (15s)" toggle (on by
+default) that re-polls the chain and re-renders on a timer via
+`st.fragment(run_every=...)` — the same 15-second polling cadence the
+Next.js frontend uses, not a Kite Ticker websocket subscription (Streamlit
+Cloud has no server-push mechanism for that). With `MARKET_DATA_PROVIDER=kite`
+this means the numbers you see are genuinely current as of the last poll;
+turn the toggle off to freeze on one snapshot (e.g. while reading the
+commentary) without fighting a moving option chain.
+
 **Kite Connect on a public app — read this before setting `MARKET_DATA_PROVIDER=kite`:**
 Streamlit Community Cloud apps are public URLs by default (no built-in
 per-user access control on the free tier). Two things follow from that:

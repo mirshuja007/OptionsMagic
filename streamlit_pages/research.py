@@ -3,8 +3,18 @@ Outlook commentary — a Streamlit port of frontend/app/research/page.tsx and
 its component tree (OiChart, IvSkewChart, StraddleDecayChart,
 IntradayPriceChart, OptionChainTable, CommentaryBox), calling the backend's
 analytics modules directly instead of over HTTP.
+
+The data/render section below is an @st.fragment(run_every=...) — Streamlit
+Cloud has no server-push mechanism of its own, so "live" here means the
+same thing it means in the Next.js frontend: polling on an interval
+(POLL_INTERVAL_MS there, POLL_SECONDS here), not a Kite Ticker websocket
+subscription. The fragment reruns *only itself* on that timer, not the
+whole page — the symbol/expiry selectors above it don't re-render or lose
+focus every cycle.
 """
 from __future__ import annotations
+
+from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,6 +25,7 @@ from streamlit_pages.common import fmt, safe_call
 GREEN = "#22c55e"
 RED = "#ef4444"
 AMBER = "#f59e0b"
+POLL_SECONDS = 15
 
 
 def _dark_layout(fig: go.Figure, **kwargs) -> go.Figure:
@@ -30,13 +41,16 @@ def _dark_layout(fig: go.Figure, **kwargs) -> go.Figure:
 
 
 def render() -> None:
-    from app.data.feed import available_expiries, generate_minute_series, generate_option_chain
+    from app.data.feed import available_expiries, get_active_provider
     from app.data.instruments import ALL_INSTRUMENTS
 
     st.title("Research Mode")
 
+    provider = get_active_provider()
+    live = provider == "kite"
+
     symbols = sorted(ALL_INSTRUMENTS.keys())
-    col1, col2 = st.columns([1, 1])
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         symbol = st.selectbox("Symbol", symbols, index=symbols.index("NIFTY") if "NIFTY" in symbols else 0)
     expiries, expiry_err = safe_call(available_expiries, symbol)
@@ -46,6 +60,28 @@ def render() -> None:
             st.error(expiry_err or "No expiries available")
             return
         expiry = st.selectbox("Expiry", expiries, format_func=lambda d: d.strftime("%a, %d %b %Y"))
+    with col3:
+        st.write("")  # vertical spacer to align the toggle with the selectboxes
+        auto_refresh = st.toggle(f"Live refresh ({POLL_SECONDS}s)", value=True)
+
+    if auto_refresh:
+        _live_panel(symbol, expiry)
+    else:
+        _render(symbol, expiry, live)
+
+
+@st.fragment(run_every=f"{POLL_SECONDS}s")
+def _live_panel(symbol: str, expiry) -> None:
+    from app.data.feed import get_active_provider
+
+    _render(symbol, expiry, get_active_provider() == "kite")
+
+
+def _render(symbol: str, expiry, live: bool) -> None:
+    from app.data.feed import generate_minute_series, generate_option_chain
+
+    badge = "🟢 refreshing live" if live else "🟠 refreshing (simulated data)"
+    st.caption(f"Updated {datetime.now().strftime('%H:%M:%S')} · {badge} every {POLL_SECONDS}s")
 
     chain, chain_err = safe_call(generate_option_chain, symbol, expiry=expiry)
     if chain_err or chain is None:
@@ -73,9 +109,7 @@ def render() -> None:
     sr = commentary_mod.support_resistance(chain)
     band = commentary_mod.expiry_band_probability(chain.spot, atm_iv_value, chain.time_to_expiry_years)
 
-    from app.data.feed import get_active_provider
-
-    oi_change_available = get_active_provider() != "kite"
+    oi_change_available = not live
 
     series, series_err = safe_call(generate_minute_series, symbol)
     vwap_value = None
