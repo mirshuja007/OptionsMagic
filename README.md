@@ -250,6 +250,16 @@ Python functions instead of HTTP endpoints, so there's no separate backend
 service to stand up. It's a genuinely different UI (Streamlit's own widgets,
 not the Tailwind design), not a proxy in front of the Next.js one.
 
+Strategy Command Mode has two modes, toggled at the top of the page:
+**Discover** (the constraint solver — same as the Next.js app's `/strategy`)
+and **Manual Builder**, which lets you assemble a strategy leg by leg (pick
+strike/type/side/lots, Add Position) and see payoff, Greeks, PoP, margin,
+and breakevens update live via `app.strategy.solver.evaluate_strategy()`.
+Its "Suggest Improvements" button (`optimize_legs()`) searches nearby
+strikes for a variant of the same strategy shape with a higher max profit
+at no worse max loss or margin, which you can apply with one click. This
+mode isn't in the Next.js frontend yet.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

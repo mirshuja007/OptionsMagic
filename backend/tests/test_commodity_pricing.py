@@ -10,7 +10,7 @@ import pytest
 
 from app.core.black_scholes import OptionType, greeks, price
 from app.data.instruments import get_instrument
-from app.strategy.generator import _carry_rate, bull_put_spreads
+from app.strategy.generator import carry_rate, bull_put_spreads
 from app.strategy.legs import Leg, Side, mark_to_market, portfolio_greeks
 from app.data.mock_feed import generate_option_chain
 
@@ -99,8 +99,8 @@ def test_portfolio_greeks_use_leg_q():
 def test_carry_rate_helper_matches_instrument_flag():
     crude_chain = generate_option_chain("CRUDEOIL", seed=1)
     nifty_chain = generate_option_chain("NIFTY", seed=1)
-    assert _carry_rate(crude_chain) == crude_chain.risk_free_rate
-    assert _carry_rate(nifty_chain) == 0.0
+    assert carry_rate(crude_chain) == crude_chain.risk_free_rate
+    assert carry_rate(nifty_chain) == 0.0
 
 
 def test_generated_commodity_legs_carry_q_equal_to_rate():

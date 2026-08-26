@@ -19,7 +19,7 @@ class Candidate:
     legs: list[Leg]
 
 
-def _row_by_strike(chain: OptionChain) -> dict[float, ChainRow]:
+def row_by_strike(chain: OptionChain) -> dict[float, ChainRow]:
     return {row.strike: row for row in chain.rows}
 
 
@@ -27,7 +27,7 @@ def _mid(bid: float, ask: float) -> float:
     return round((bid + ask) / 2.0, 2)
 
 
-def _carry_rate(chain: OptionChain) -> float:
+def carry_rate(chain: OptionChain) -> float:
     """0 for equity/index underlyings, r for futures-underlying (commodity)
     ones — see Instrument.pricing_carry_rate_equals_risk_free.
     """
@@ -35,7 +35,7 @@ def _carry_rate(chain: OptionChain) -> float:
     return chain.risk_free_rate if instrument.pricing_carry_rate_equals_risk_free else 0.0
 
 
-def _leg(row: ChainRow, option_type: OptionType, side: Side, qty: int, q: float) -> Leg:
+def build_leg(row: ChainRow, option_type: OptionType, side: Side, qty: int, q: float) -> Leg:
     quote = row.call if option_type == OptionType.CALL else row.put
     return Leg(
         option_type=option_type,
@@ -50,9 +50,9 @@ def _leg(row: ChainRow, option_type: OptionType, side: Side, qty: int, q: float)
 
 
 def bull_put_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
-    by_strike = _row_by_strike(chain)
-    step = _strike_step(chain)
-    q = _carry_rate(chain)
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
     out: list[Candidate] = []
     for row in chain.rows:
         if row.strike >= chain.spot:
@@ -62,17 +62,17 @@ def bull_put_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4))
             if long_strike not in by_strike:
                 continue
             legs = [
-                _leg(row, OptionType.PUT, Side.SHORT, 1, q),
-                _leg(by_strike[long_strike], OptionType.PUT, Side.LONG, 1, q),
+                build_leg(row, OptionType.PUT, Side.SHORT, 1, q),
+                build_leg(by_strike[long_strike], OptionType.PUT, Side.LONG, 1, q),
             ]
             out.append(Candidate("bull_put_spread", legs))
     return out
 
 
 def bear_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
-    by_strike = _row_by_strike(chain)
-    step = _strike_step(chain)
-    q = _carry_rate(chain)
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
     out: list[Candidate] = []
     for row in chain.rows:
         if row.strike <= chain.spot:
@@ -82,8 +82,8 @@ def bear_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)
             if long_strike not in by_strike:
                 continue
             legs = [
-                _leg(row, OptionType.CALL, Side.SHORT, 1, q),
-                _leg(by_strike[long_strike], OptionType.CALL, Side.LONG, 1, q),
+                build_leg(row, OptionType.CALL, Side.SHORT, 1, q),
+                build_leg(by_strike[long_strike], OptionType.CALL, Side.LONG, 1, q),
             ]
             out.append(Candidate("bear_call_spread", legs))
     return out
@@ -109,9 +109,9 @@ def iron_condors(
 
 
 def iron_flies(chain: OptionChain, wing_widths: tuple[int, ...] = (2, 3, 4, 5, 6)) -> list[Candidate]:
-    by_strike = _row_by_strike(chain)
-    step = _strike_step(chain)
-    q = _carry_rate(chain)
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
     atm_row = min(chain.rows, key=lambda r: abs(r.strike - chain.spot))
     out: list[Candidate] = []
     for width in wing_widths:
@@ -120,10 +120,10 @@ def iron_flies(chain: OptionChain, wing_widths: tuple[int, ...] = (2, 3, 4, 5, 6
         if call_wing_strike not in by_strike or put_wing_strike not in by_strike:
             continue
         legs = [
-            _leg(atm_row, OptionType.CALL, Side.SHORT, 1, q),
-            _leg(atm_row, OptionType.PUT, Side.SHORT, 1, q),
-            _leg(by_strike[call_wing_strike], OptionType.CALL, Side.LONG, 1, q),
-            _leg(by_strike[put_wing_strike], OptionType.PUT, Side.LONG, 1, q),
+            build_leg(atm_row, OptionType.CALL, Side.SHORT, 1, q),
+            build_leg(atm_row, OptionType.PUT, Side.SHORT, 1, q),
+            build_leg(by_strike[call_wing_strike], OptionType.CALL, Side.LONG, 1, q),
+            build_leg(by_strike[put_wing_strike], OptionType.PUT, Side.LONG, 1, q),
         ]
         out.append(Candidate("iron_fly", legs))
     return out
@@ -138,9 +138,9 @@ def ratio_spreads(
     on the same side. Undefined risk on the excess short legs — the solver's
     max-loss/margin filters naturally weed out unsuitable ones.
     """
-    by_strike = _row_by_strike(chain)
-    step = _strike_step(chain)
-    q = _carry_rate(chain)
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
     atm_row = min(chain.rows, key=lambda r: abs(r.strike - chain.spot))
     out: list[Candidate] = []
 
@@ -152,15 +152,15 @@ def ratio_spreads(
             if short_strike not in by_strike:
                 continue
             legs = [
-                _leg(long_row, option_type, Side.LONG, 1, q),
-                _leg(by_strike[short_strike], option_type, Side.SHORT, sell_ratio, q),
+                build_leg(long_row, option_type, Side.LONG, 1, q),
+                build_leg(by_strike[short_strike], option_type, Side.SHORT, sell_ratio, q),
             ]
             label = "call" if option_type == OptionType.CALL else "put"
             out.append(Candidate(f"ratio_spread_{label}", legs))
     return out
 
 
-def _strike_step(chain: OptionChain) -> float:
+def strike_step(chain: OptionChain) -> float:
     strikes = sorted({row.strike for row in chain.rows})
     return strikes[1] - strikes[0] if len(strikes) > 1 else 1.0
 

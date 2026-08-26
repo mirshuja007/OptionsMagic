@@ -143,3 +143,33 @@ def payoff_extrema(legs: list[Leg], lot_size: int) -> PayoffExtrema:
         unlimited_upside_risk=unlimited_upside_loss or unlimited_upside_profit,
         unlimited_downside_risk=unlimited_downside_loss or unlimited_downside_profit,
     )
+
+
+def breakeven_points(legs: list[Leg], lot_size: int) -> list[float]:
+    """Terminal spot prices where the combo's payoff at expiry crosses zero.
+    The payoff is piecewise-linear in terminal spot (see ``payoff_extrema``),
+    so every crossing lies on a straight segment between two consecutive
+    strikes (or an outer bound) and can be found by linear interpolation —
+    no root-finding needed.
+    """
+    strikes = sorted({leg.strike for leg in legs})
+    if not strikes:
+        return []
+
+    lo_bound = max(strikes[0] * 0.01, 0.01)
+    hi_bound = strikes[-1] * 5.0
+    xs = sorted(set(strikes) | {lo_bound, hi_bound})
+    ys = payoff_at_expiry(legs, lot_size, np.array(xs, dtype=float))
+
+    crossings: list[float] = []
+    for i in range(len(xs) - 1):
+        x0, x1 = xs[i], xs[i + 1]
+        y0, y1 = ys[i], ys[i + 1]
+        if y0 == 0:
+            crossings.append(x0)
+        elif (y0 < 0 < y1) or (y1 < 0 < y0):
+            crossings.append(x0 + (0.0 - y0) * (x1 - x0) / (y1 - y0))
+    if ys[-1] == 0:
+        crossings.append(xs[-1])
+
+    return sorted({round(c, 2) for c in crossings})

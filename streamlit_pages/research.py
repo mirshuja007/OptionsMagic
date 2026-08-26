@@ -20,25 +20,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from streamlit_pages.common import fmt, safe_call
+from streamlit_pages.common import AMBER, GREEN, RED, dark_layout, fmt, safe_call
 from streamlit_pages.kite_login import render_kite_login_panel
 
-GREEN = "#22c55e"
-RED = "#ef4444"
-AMBER = "#f59e0b"
 POLL_SECONDS = 15
-
-
-def _dark_layout(fig: go.Figure, **kwargs) -> go.Figure:
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        **kwargs,
-    )
-    return fig
 
 
 def render() -> None:
@@ -123,7 +108,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
         times = [t.strftime("%H:%M") for t, _, _ in series]
         fig.add_trace(go.Scatter(x=times, y=[p for _, p, _ in series], name="Spot", line=dict(color=GREEN, width=2)))
         fig.add_trace(go.Scatter(x=times, y=vwaps, name="VWAP", line=dict(color=AMBER, width=1.5, dash="dash")))
-        _dark_layout(fig, title=f"{symbol} — Intraday Spot Price vs. VWAP", height=380)
+        dark_layout(fig, title=f"{symbol} — Intraday Spot Price vs. VWAP", height=380)
         st.plotly_chart(fig, use_container_width=True)
     elif series_err:
         st.info(f"Intraday chart unavailable: {series_err}")
@@ -202,7 +187,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
     strikes = [s.strike for s in oi_by_strike]
     oi_fig.add_trace(go.Bar(x=strikes, y=[s.call_oi for s in oi_by_strike], name="Call OI", marker_color=GREEN))
     oi_fig.add_trace(go.Bar(x=strikes, y=[s.put_oi for s in oi_by_strike], name="Put OI", marker_color=RED))
-    _dark_layout(oi_fig, barmode="group", height=340)
+    dark_layout(oi_fig, barmode="group", height=340)
     st.plotly_chart(oi_fig, use_container_width=True)
 
     col_a, col_b = st.columns(2)
@@ -210,7 +195,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
         iv_fig = go.Figure()
         iv_fig.add_trace(go.Scatter(x=[g.strike for g in grid], y=[g.call_iv * 100 for g in grid], name="Call IV", line=dict(color=GREEN, width=2)))
         iv_fig.add_trace(go.Scatter(x=[g.strike for g in grid], y=[g.put_iv * 100 for g in grid], name="Put IV", line=dict(color=RED, width=2)))
-        _dark_layout(iv_fig, title="Implied Volatility Skew", height=320)
+        dark_layout(iv_fig, title="Implied Volatility Skew", height=320)
         st.plotly_chart(iv_fig, use_container_width=True)
     with col_b:
         decay_fig = go.Figure()
@@ -222,7 +207,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
                 line=dict(color=AMBER, width=2),
             )
         )
-        _dark_layout(decay_fig, title=f"ATM Straddle Premium Decay ({atm_straddle.strike:.0f})", height=320, xaxis_title="Today -> Expiry")
+        dark_layout(decay_fig, title=f"ATM Straddle Premium Decay ({atm_straddle.strike:.0f})", height=320, xaxis_title="Today -> Expiry")
         st.plotly_chart(decay_fig, use_container_width=True)
 
     # --- Option chain table -----------------------------------------------

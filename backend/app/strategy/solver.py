@@ -22,6 +22,7 @@ promotes a candidate the pure math ranked far behind.
 """
 from __future__ import annotations
 
+import itertools
 import statistics
 from dataclasses import dataclass, replace
 
@@ -33,7 +34,7 @@ from app.core.pop import strategy_pop_monte_carlo
 from app.data.instruments import Instrument
 from app.data.mock_feed import OptionChain
 from app.margin.span import MarginEstimate, estimate_margin
-from app.strategy.generator import Candidate, generate_all_candidates
+from app.strategy.generator import Candidate, build_leg, carry_rate, generate_all_candidates, row_by_strike, strike_step
 from app.strategy.legs import Leg, PayoffExtrema, Side, payoff_at_expiry, payoff_extrema
 
 #: (yield_weight, pop_weight, sharpe_weight) — each triple sums to ~1.0.
@@ -298,6 +299,123 @@ def _score_candidate(
         sharpe=round(mc["sharpe"], 4),
         yield_pct=round(yield_pct, 4),
     )
+
+
+def _full_result(candidate: Candidate, chain: OptionChain, instrument: Instrument, n_paths: int) -> StrategyResult:
+    """Unconditional payoff/margin/PoP/EV/Sharpe analysis for one candidate —
+    no constraint filtering, always returns a result. ``_score_candidate``
+    duplicates this sequence with early-exit filtering baked in (worthwhile
+    there, screening hundreds of auto-generated candidates); this version is
+    for evaluating exactly one candidate at a time, where that staging buys
+    nothing.
+    """
+    legs = candidate.legs
+    extrema = payoff_extrema(legs, instrument.lot_size)
+    margin = estimate_margin(legs, instrument, chain.spot, chain.time_to_expiry_years, chain.risk_free_rate)
+    yield_pct = extrema.max_profit / margin.total_margin if margin.total_margin > 0 else 0.0
+
+    payoff_fn = lambda terminal: payoff_at_expiry(legs, instrument.lot_size, terminal)  # noqa: E731
+    mc = strategy_pop_monte_carlo(
+        payoff_fn,
+        chain.spot,
+        chain.time_to_expiry_years,
+        chain.risk_free_rate,
+        sigma=_avg_iv(legs),
+        n_paths=n_paths,
+    )
+    return StrategyResult(
+        strategy_type=candidate.strategy_type,
+        legs=legs,
+        margin=margin,
+        payoff=extrema,
+        probability_of_profit=round(mc["probability_of_profit"], 4),
+        expected_value=round(mc["expected_value"], 2),
+        sharpe=round(mc["sharpe"], 4),
+        yield_pct=round(yield_pct, 4),
+    )
+
+
+def evaluate_strategy(
+    legs: list[Leg],
+    chain: OptionChain,
+    instrument: Instrument,
+    n_paths: int = 50_000,
+    strategy_type: str = "custom",
+) -> StrategyResult:
+    """Full analysis for an arbitrary, user-assembled list of legs — the
+    manual strategy builder's equivalent of ``discover_strategies``. Unlike
+    the solver's internal scoring, this never returns ``None``: a manual
+    build has no constraints to fail against, it's just analyzed as-is.
+    """
+    return _full_result(Candidate(strategy_type, legs), chain, instrument, n_paths)
+
+
+def optimize_legs(
+    legs: list[Leg],
+    chain: OptionChain,
+    instrument: Instrument,
+    strike_range: int = 3,
+    margin_tolerance: float = 1.1,
+    n_paths: int = 3000,
+    max_combos: int = 300,
+    top_n: int = 5,
+) -> list[StrategyResult]:
+    """Local search over nearby strikes for a manually-built strategy: keeps
+    each leg's option_type/side/quantity_lots fixed (the strategy's "shape"),
+    varies each leg's strike within +/-``strike_range`` steps of the chain's
+    strike spacing, and returns up to ``top_n`` alternatives that increase
+    max profit while keeping max loss no worse and margin within
+    ``margin_tolerance``x the original — "customize this, but don't blow up
+    my risk," per the manual builder's Optimize button.
+
+    Combinatorial size is bounded by ``max_combos`` (evaluation stops once
+    that many candidates have been scored) since it's otherwise
+    ``(2*strike_range+1)**len(legs)``, which grows fast for 4-leg strategies.
+    """
+    if not legs:
+        return []
+
+    baseline = _full_result(Candidate("custom", legs), chain, instrument, n_paths)
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    original_strikes = tuple(leg.strike for leg in legs)
+
+    def _candidate_strikes(original_strike: float) -> list[float]:
+        out = [
+            original_strike + offset * step
+            for offset in range(-strike_range, strike_range + 1)
+            if (original_strike + offset * step) in by_strike
+        ]
+        return out or [original_strike]
+
+    per_leg_strikes = [_candidate_strikes(strike) for strike in original_strikes]
+
+    results: list[StrategyResult] = []
+    evaluated = 0
+    for combo in itertools.product(*per_leg_strikes):
+        if combo == original_strikes:
+            continue
+        if evaluated >= max_combos:
+            break
+        evaluated += 1
+
+        new_legs = [
+            build_leg(by_strike[strike], leg.option_type, leg.side, leg.quantity_lots, leg.q)
+            for leg, strike in zip(legs, combo)
+        ]
+        result = _full_result(Candidate("custom", new_legs), chain, instrument, n_paths)
+
+        if result.payoff.max_loss < baseline.payoff.max_loss:
+            continue  # worse downside than the original
+        if result.margin.total_margin > baseline.margin.total_margin * margin_tolerance:
+            continue
+        if result.payoff.max_profit <= baseline.payoff.max_profit:
+            continue  # no improvement
+
+        results.append(result)
+
+    results.sort(key=lambda r: r.payoff.max_profit, reverse=True)
+    return results[:top_n]
 
 
 def discover_strategies(

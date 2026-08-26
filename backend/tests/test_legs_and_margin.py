@@ -4,7 +4,7 @@ from app.core.black_scholes import OptionType
 from app.data.instruments import get_instrument
 from app.data.mock_feed import generate_option_chain
 from app.margin.span import estimate_margin
-from app.strategy.legs import Leg, Side, net_entry_cashflow, payoff_extrema
+from app.strategy.legs import Leg, Side, breakeven_points, net_entry_cashflow, payoff_extrema
 
 
 def _bull_put_spread():
@@ -50,6 +50,19 @@ def test_ratio_call_spread_unlimited_risk_is_a_loss_not_a_profit():
     assert not extrema.unlimited_downside_risk
     assert extrema.max_profit < 1e11  # finite, not the unlimited-risk sentinel
     assert extrema.max_loss <= -1e11  # the sentinel, not a finite kink value
+
+
+def test_breakeven_points_bull_put_spread():
+    # Short 24700 put (credit 60) + long 24500 put (debit 25): net credit 35,
+    # so breakeven = short strike - net credit = 24700 - 35 = 24665.
+    legs = _bull_put_spread()
+    breakevens = breakeven_points(legs, lot_size=75)
+    assert len(breakevens) == 1
+    assert breakevens[0] == pytest.approx(24665.0, abs=0.01)
+
+
+def test_breakeven_points_empty_for_no_legs():
+    assert breakeven_points([], lot_size=75) == []
 
 
 def test_net_entry_cashflow_credit_spread_is_positive():

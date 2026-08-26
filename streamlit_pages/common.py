@@ -15,6 +15,12 @@ import os
 import sys
 from pathlib import Path
 
+import plotly.graph_objects as go
+
+GREEN = "#22c55e"
+RED = "#ef4444"
+AMBER = "#f59e0b"
+
 _BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
@@ -94,3 +100,16 @@ def fmt_currency(n: float) -> str:
 
 def strategy_label(strategy_type: str) -> str:
     return " ".join(w.capitalize() for w in strategy_type.split("_"))
+
+
+def dark_layout(fig: go.Figure, **kwargs) -> go.Figure:
+    """Shared Plotly dark-theme layout, matching the sidebar/page palette."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        **kwargs,
+    )
+    return fig
