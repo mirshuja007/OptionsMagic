@@ -13,6 +13,20 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
+# Zerodha's login endpoints are undocumented and appear to reject requests
+# that don't look like they came from a browser (kite.zerodha.com itself) —
+# a bare requests.Session with no User-Agent/Referer/Origin has been
+# observed to get a 403 from /api/twofa even with correct credentials.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://kite.zerodha.com/",
+    "Origin": "https://kite.zerodha.com",
+    "X-Kite-Version": "3.0.0",
+}
+
 
 def extract_request_token(raw: str) -> str:
     raw = raw.strip()
@@ -35,6 +49,7 @@ def request_token_with_totp_code(api_key: str, user_id: str, password: str, totp
     import requests
 
     session = requests.Session()
+    session.headers.update(_BROWSER_HEADERS)
 
     login_resp = session.post(
         "https://kite.zerodha.com/api/login",
