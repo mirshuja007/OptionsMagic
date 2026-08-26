@@ -26,11 +26,24 @@ Security notes, since this trades off differently than the local script:
   that Kite Connect's official docs don't describe or support — see its
   docstring in ``backend/app/data/kite_auth.py`` for the same tradeoff the
   local script's docstring already documents.
+
+Known limitation: on Streamlit Community Cloud specifically, this panel's
+login call has been observed to fail with "403 Forbidden" on Zerodha's
+``/api/twofa`` endpoint even with correct credentials and browser-like
+request headers — most likely Zerodha rejecting the request based on
+Streamlit Cloud's datacenter IP address, not anything about the request
+itself. There's no header or retry fix for that from this side. If you hit
+this, fall back to running ``kite_login.py`` from your own machine (no
+``--auto`` needed — the plain browser-login mode works regardless) and
+paste the resulting ``KITE_ACCESS_TOKEN`` into this app's Secrets. This
+panel still works fine if you ever run the Streamlit app locally instead of
+on Cloud, since it isn't calling from a datacenter IP there.
 """
 from __future__ import annotations
 
 import os
 
+import requests
 import streamlit as st
 
 from streamlit_pages.common import get_secret
@@ -41,6 +54,11 @@ def render_kite_login_panel() -> None:
         st.caption(
             "Exchanges a fresh Kite login for today's access token, without leaving this "
             "app. Your password is never stored — it's used once for this login and discarded."
+        )
+        st.caption(
+            "⚠️ On Streamlit Community Cloud, this can fail with a 403 error — Zerodha appears to block "
+            "login attempts from Cloud datacenter IPs, regardless of credentials. If that happens, run "
+            "`kite_login.py` from your own machine instead and paste the token into Secrets."
         )
 
         api_key = get_secret("KITE_API_KEY") or os.environ.get("KITE_API_KEY", "")
@@ -89,7 +107,18 @@ def render_kite_login_panel() -> None:
             except KiteException as exc:
                 st.error(f"Token exchange failed: {exc}")
                 return
-            except Exception as exc:  # noqa: BLE001 — surface any login/HTTP failure with context
+            except requests.exceptions.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status == 403:
+                    st.error(
+                        "Login failed: 403 Forbidden from Zerodha. This usually means Zerodha is blocking "
+                        "the request based on Streamlit Cloud's IP address, not your credentials — see the "
+                        "\"Known limitation\" note above. Run kite_login.py from your own machine instead."
+                    )
+                else:
+                    st.error(f"Login failed: {exc}")
+                return
+            except Exception as exc:  # noqa: BLE001 — surface any other login/HTTP failure with context
                 st.error(f"Login failed: {exc}")
                 return
             finally:
