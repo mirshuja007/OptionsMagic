@@ -260,10 +260,28 @@ strikes for a variant of the same strategy shape with a higher max profit
 at no worse max loss or margin, which you can apply with one click. This
 mode isn't in the Next.js frontend yet.
 
+A third page, **CAS Monitor**, covers SEBI's Closing Auction Session — live
+on NSE/BSE from Aug 3, 2026 for stocks with listed F&O contracts, replacing
+the old last-30-minutes-VWAP closing-price method with a 20-minute call
+auction (3:15-3:35pm). It shows the reference price (VWAP of 3:00-3:15pm
+trades, computed from ordinary minute-bar data — no dependency on any
+CAS-specific API field), the +/-3% auction band, where today's timeline
+currently stands, and a plain-language explainer of the mechanism. Note
+CAS is per-stock, not per-index — there's no NIFTY/BANKNIFTY CAS panel,
+since an index's close is still just the weighted sum of its constituents'
+closes. When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
+(diagnostic)" section fetches a raw Kite Connect quote for the selected
+stock and flags any field it doesn't recognize — this is how to check,
+live during the 3:15-3:35pm IST window, whether Kite's API actually
+exposes the same reference-price/indicative-close/imbalance-quantity
+fields Kite Web shows (unconfirmed as of this writing — see
+`app.data.cas`'s module docstring).
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
 streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
+streamlit_pages/cas.py        CAS Monitor (reference price/band, auction timeline, live-field diagnostic)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

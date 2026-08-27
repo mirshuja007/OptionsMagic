@@ -218,6 +218,32 @@ def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> tu
     return _quote_underlying(kite, key)
 
 
+def raw_underlying_quote(symbol: str) -> dict:
+    """The full, un-narrowed ``kite.quote()`` response for a stock's spot
+    instrument — unlike ``_quote_underlying`` (which extracts only
+    last_price/ohlc.close), this passes through every field Kite Connect
+    returns. Diagnostic use: during the Closing Auction Session window,
+    Kite Web shows a reference price / indicative close / imbalance
+    quantity for CAS-eligible stocks, but whether the Kite Connect *API*
+    (as opposed to Kite Web's own internal feed) exposes the same fields
+    is unconfirmed — this is how ``app.data.cas`` checks, live, during the
+    actual 3:15-3:35pm IST auction window.
+    """
+    instrument = get_instrument(symbol)
+    if instrument.is_commodity:
+        raise KiteFeedError("raw_underlying_quote doesn't support commodity (futures-underlying) instruments.")
+    kite = get_kite_client()
+    key = f"{instrument.kite_spot_exchange}:{instrument.kite_spot_tradingsymbol}"
+    try:
+        resp = kite.quote(key)
+    except _KiteTransportError as exc:
+        raise KiteFeedError(f"Failed to fetch quote for {key}: {exc}") from exc
+    try:
+        return resp[key]
+    except KeyError as exc:
+        raise KiteFeedError(f"Unexpected quote response shape for {key}: {resp}") from exc
+
+
 def _quote_to_leg(
     quote: dict,
     spot: float,

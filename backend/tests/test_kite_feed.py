@@ -294,6 +294,35 @@ def test_generate_option_chain_end_to_end(monkeypatch):
         assert row.call.oi_change == 0
 
 
+def test_raw_underlying_quote_passes_through_every_field(monkeypatch):
+    # Unlike _quote_underlying (which narrows to last_price/ohlc.close),
+    # raw_underlying_quote must hand back the whole dict — including fields
+    # this codebase doesn't otherwise parse, like `depth` — since its whole
+    # purpose is letting a caller inspect what Kite Connect actually returns.
+    quote_map = {
+        "NSE:RELIANCE": {
+            "last_price": 2955.5,
+            "ohlc": {"close": 2940.0},
+            "depth": {"buy": [{"price": 2955.0, "quantity": 10}], "sell": [{"price": 2956.0, "quantity": 5}]},
+        }
+    }
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map=quote_map)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+
+    quote = kite_feed.raw_underlying_quote("RELIANCE")
+
+    assert quote == quote_map["NSE:RELIANCE"]
+    assert "depth" in quote  # the field a plain last_price/ohlc.close read would drop
+
+
+def test_raw_underlying_quote_rejects_commodity_instruments(monkeypatch):
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={})
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.raw_underlying_quote("CRUDEOIL")
+
+
 def test_generate_option_chain_raises_kite_feed_error_on_unmapped_underlying(monkeypatch):
     fake = FakeKite(nfo_rows=[], spot_ltp=100.0, quote_map={})
     monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
