@@ -210,6 +210,45 @@ STOCKS: dict[str, Instrument] = {
     "MARUTI": Instrument("MARUTI", "Maruti Suzuki India", False, 50, 100, 13639.0, 0.23, "NSE",
                           kite_underlying_name="MARUTI", kite_spot_tradingsymbol="MARUTI",
                           expiry_cadence="monthly", expiry_weekday=1),
+    # Rounds out coverage to (approximately) the top ~20 heaviest-weight
+    # constituents of NIFTY 50 *and* SENSEX 30 combined, deduplicated,
+    # restricted to names that actually have listed F&O contracts — still
+    # nowhere near the full ~200-stock F&O/CAS universe, but covers the
+    # names that move both major indices. KOTAKBANK/AXISBANK/HCLTECH/ITC/
+    # NTPC/M&M round out NIFTY 50's next tier by weight; INDIGO/TRENT/TECHM
+    # are SENSEX 30 constituents heavy enough to matter there even where
+    # their NIFTY 50 weight alone wouldn't have made this cut. Lot sizes
+    # for the last few below are principled estimates (NSE roughly targets
+    # a ₹5-10L contract value per lot) rather than a confirmed source, since
+    # not every one of these turned up an exact current figure — same
+    # "verify against a live Kite pull" caveat as everything else here.
+    "KOTAKBANK": Instrument("KOTAKBANK", "Kotak Mahindra Bank", False, 1600, 5, 424.20, 0.22, "NSE",
+                             kite_underlying_name="KOTAKBANK", kite_spot_tradingsymbol="KOTAKBANK",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "AXISBANK": Instrument("AXISBANK", "Axis Bank", False, 875, 10, 1246.0, 0.24, "NSE",
+                            kite_underlying_name="AXISBANK", kite_spot_tradingsymbol="AXISBANK",
+                            expiry_cadence="monthly", expiry_weekday=1),
+    "HCLTECH": Instrument("HCLTECH", "HCL Technologies", False, 350, 20, 1301.20, 0.22, "NSE",
+                           kite_underlying_name="HCLTECH", kite_spot_tradingsymbol="HCLTECH",
+                           expiry_cadence="monthly", expiry_weekday=1),
+    "ITC": Instrument("ITC", "ITC", False, 1575, 5, 269.0, 0.19, "NSE",
+                       kite_underlying_name="ITC", kite_spot_tradingsymbol="ITC",
+                       expiry_cadence="monthly", expiry_weekday=1),
+    "NTPC": Instrument("NTPC", "NTPC", False, 1800, 5, 337.10, 0.20, "NSE",
+                        kite_underlying_name="NTPC", kite_spot_tradingsymbol="NTPC",
+                        expiry_cadence="monthly", expiry_weekday=1),
+    "M&M": Instrument("M&M", "Mahindra & Mahindra", False, 175, 50, 3443.0, 0.26, "NSE",
+                       kite_underlying_name="M&M", kite_spot_tradingsymbol="M&M",
+                       expiry_cadence="monthly", expiry_weekday=1),
+    "INDIGO": Instrument("INDIGO", "InterGlobe Aviation", False, 100, 50, 5275.0, 0.32, "NSE",
+                          kite_underlying_name="INDIGO", kite_spot_tradingsymbol="INDIGO",
+                          expiry_cadence="monthly", expiry_weekday=1),
+    "TRENT": Instrument("TRENT", "Trent", False, 200, 50, 2915.0, 0.30, "NSE",
+                         kite_underlying_name="TRENT", kite_spot_tradingsymbol="TRENT",
+                         expiry_cadence="monthly", expiry_weekday=1),
+    "TECHM": Instrument("TECHM", "Tech Mahindra", False, 600, 20, 1598.0, 0.25, "NSE",
+                         kite_underlying_name="TECHM", kite_spot_tradingsymbol="TECHM",
+                         expiry_cadence="monthly", expiry_weekday=1),
 }
 
 # MCX commodity options — options on futures contracts, settled per MCX's
