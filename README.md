@@ -269,7 +269,11 @@ CAS-specific API field), the +/-3% auction band, where today's timeline
 currently stands, and a plain-language explainer of the mechanism. Note
 CAS is per-stock, not per-index — there's no NIFTY/BANKNIFTY CAS panel,
 since an index's close is still just the weighted sum of its constituents'
-closes. When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
+closes. The stock list is deliberately curated to NIFTY 50's heaviest-weight
+constituents (Reliance, HDFC Bank, ICICI Bank, SBI, Bharti Airtel, TCS,
+Bajaj Finance, L&T, HUL, Sun Pharma, Infosys, Titan, Maruti — the names
+that actually move the index) rather than the full ~200-stock F&O/CAS
+universe — see `app.data.instruments.STOCKS`. When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
 (diagnostic)" section fetches a raw Kite Connect quote for the selected
 stock and flags any field it doesn't recognize — this is how to check,
 live during the 3:15-3:35pm IST window, whether Kite's API actually

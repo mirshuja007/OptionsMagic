@@ -182,6 +182,34 @@ STOCKS: dict[str, Instrument] = {
     "SBIN": Instrument("SBIN", "State Bank of India", False, 750, 5, 815.0, 0.25, "NSE",
                         kite_underlying_name="SBIN", kite_spot_tradingsymbol="SBIN",
                         expiry_cadence="monthly", expiry_weekday=1),
+    # NIFTY 50's next heaviest-weight constituents (by index weightage, Aug
+    # 2026) — added deliberately over trying to cover the full ~200-stock
+    # F&O/CAS universe, since these are the names that actually move the
+    # index and are what CAS Monitor's stock list is meant to prioritize.
+    # lot_size/base_spot below are best-effort snapshots (Aug 2026); like
+    # every other entry here, verify against a live Kite pull before
+    # trusting a margin/yield number this produces.
+    "BHARTIARTL": Instrument("BHARTIARTL", "Bharti Airtel", False, 1851, 20, 1935.70, 0.22, "NSE",
+                              kite_underlying_name="BHARTIARTL", kite_spot_tradingsymbol="BHARTIARTL",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "BAJFINANCE": Instrument("BAJFINANCE", "Bajaj Finance", False, 250, 20, 1087.40, 0.26, "NSE",
+                              kite_underlying_name="BAJFINANCE", kite_spot_tradingsymbol="BAJFINANCE",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "LT": Instrument("LT", "Larsen & Toubro", False, 175, 50, 4087.0, 0.24, "NSE",
+                      kite_underlying_name="LT", kite_spot_tradingsymbol="LT",
+                      expiry_cadence="monthly", expiry_weekday=1),
+    "HINDUNILVR": Instrument("HINDUNILVR", "Hindustan Unilever", False, 300, 20, 2023.30, 0.18, "NSE",
+                              kite_underlying_name="HINDUNILVR", kite_spot_tradingsymbol="HINDUNILVR",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "SUNPHARMA": Instrument("SUNPHARMA", "Sun Pharmaceutical Industries", False, 350, 20, 1917.10, 0.23, "NSE",
+                             kite_underlying_name="SUNPHARMA", kite_spot_tradingsymbol="SUNPHARMA",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "TITAN": Instrument("TITAN", "Titan Company", False, 175, 50, 5099.30, 0.25, "NSE",
+                         kite_underlying_name="TITAN", kite_spot_tradingsymbol="TITAN",
+                         expiry_cadence="monthly", expiry_weekday=1),
+    "MARUTI": Instrument("MARUTI", "Maruti Suzuki India", False, 50, 100, 13639.0, 0.23, "NSE",
+                          kite_underlying_name="MARUTI", kite_spot_tradingsymbol="MARUTI",
+                          expiry_cadence="monthly", expiry_weekday=1),
 }
 
 # MCX commodity options — options on futures contracts, settled per MCX's
