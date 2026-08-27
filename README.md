@@ -347,9 +347,16 @@ per-user access control on the free tier). Two things follow from that:
      skip storing your TOTP seed in Secrets and just type the 6-digit
      code each time instead.
 
-   Either mode updates only *this running app process's* in-memory
-   session — it can't rewrite Streamlit Cloud's platform Secrets, so a
-   Cloud reboot or redeploy needs a fresh login through the panel again.
+   Either mode updates *this running app process's* in-memory session and
+   caches the access token to a small local file, dated to today (IST) —
+   the next time the panel loads with no active session but that same-day
+   cache still present (a script rerun, or a fresh browser tab reconnecting
+   to the same running app), a "Use cached session" button appears so you
+   don't have to repeat the login. Neither the in-memory session nor the
+   cache can rewrite Streamlit Cloud's platform Secrets, and Streamlit
+   Cloud doesn't promise the local filesystem survives a container
+   restart — so a Cloud reboot or redeploy may still need a fresh login
+   through the panel regardless.
 
    You can also skip the in-app panel entirely: run `kite_login.py`
    locally each trading morning and paste the fresh `KITE_ACCESS_TOKEN`

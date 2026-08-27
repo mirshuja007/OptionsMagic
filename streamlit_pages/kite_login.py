@@ -21,6 +21,16 @@ Research Mode instead, two ways:
   see below. Prefer "Paste token" on Cloud; this mode is more likely to
   work when running the app locally.
 
+A successful login (either mode) is cached to a small local file, dated to
+today (IST) — the next time this page loads with no active session but
+that same-day cache still present (e.g. after a script rerun or a fresh
+browser tab reconnecting to the same running app), a "Use cached session"
+button appears so you don't have to repeat the login. This is purely a
+convenience shortcut on top of the in-memory session below, not a
+persistence guarantee: Streamlit Cloud doesn't promise the local
+filesystem survives a container restart, so a Cloud reboot may still need
+a fresh login regardless.
+
 Security notes:
 
 - In Auto login mode, your Zerodha password is only ever held in that
@@ -31,11 +41,14 @@ Security notes:
 - ``KITE_TOTP_SECRET`` (your TOTP seed, not a 6-digit code) is optional in
   Secrets, used only by Auto login. If set, the current code is generated
   automatically each login; if not, you enter the 6-digit code by hand.
-- A successful login here only updates *this running app process's*
-  in-memory environment (via ``os.environ`` + ``reset_kite_client()``) —
-  it cannot rewrite Streamlit Cloud's platform Secrets. A Cloud reboot or
-  redeploy still needs a fresh login through this panel (or the Secrets
-  paste, or the local script) again.
+- A successful login updates *this running app process's* in-memory
+  environment (via ``os.environ`` + ``reset_kite_client()``) and the
+  same-day disk cache described above — neither can rewrite Streamlit
+  Cloud's platform Secrets.
+- The disk cache holds only the access_token (not your password, TOTP
+  secret, or API secret), scoped to today's date and the current API key —
+  see ``_load_cached_session``. It lives at ``.streamlit/kite_session_cache.json``,
+  which is gitignored.
 
 Known limitation (Auto login only): on Streamlit Community Cloud, Auto
 login has been observed to fail with "403 Forbidden" on Zerodha's
@@ -48,12 +61,63 @@ token mode sidesteps it entirely, since the browser login happens on
 """
 from __future__ import annotations
 
+import json
 import os
+from datetime import date, datetime
+from pathlib import Path
 
 import requests
 import streamlit as st
 
 from streamlit_pages.common import get_secret
+
+_CACHE_PATH = Path(__file__).resolve().parent.parent / ".streamlit" / "kite_session_cache.json"
+
+
+def _today_ist() -> date:
+    from app.data.cas import IST
+
+    return datetime.now(IST).date()
+
+
+def _load_cached_session(api_key: str) -> str | None:
+    """Today's cached access_token for this api_key, if one was saved
+    earlier in the day — silently returns ``None`` on any missing,
+    malformed, stale (not today), or api_key-mismatched cache rather than
+    raising, since this is purely a convenience shortcut, not the source
+    of truth for whether a session is valid.
+    """
+    try:
+        data = json.loads(_CACHE_PATH.read_text())
+    except (OSError, ValueError):
+        return None
+    if data.get("api_key") != api_key or data.get("date") != _today_ist().isoformat():
+        return None
+    return data.get("access_token") or None
+
+
+def _save_cached_session(api_key: str, access_token: str) -> None:
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(
+            json.dumps({"api_key": api_key, "access_token": access_token, "date": _today_ist().isoformat()})
+        )
+    except OSError:
+        pass  # best-effort convenience cache — never block a successful login on this
+
+
+def _finish_login(api_key: str, access_token: str) -> None:
+    """Common tail of a successful login: activate the session for this
+    running process, cache it for next time, and rerun to show it live.
+    """
+    from app.data.kite_client import reset_kite_client
+
+    os.environ["KITE_API_KEY"] = api_key
+    os.environ["KITE_ACCESS_TOKEN"] = access_token
+    reset_kite_client()
+    _save_cached_session(api_key, access_token)
+    st.success("Logged in — today's Kite session is active.")
+    st.rerun()
 
 
 def render_kite_login_panel() -> None:
@@ -67,6 +131,12 @@ def render_kite_login_panel() -> None:
                 "(App settings → Secrets)."
             )
             return
+
+        cached_token = _load_cached_session(api_key)
+        if cached_token and os.environ.get("KITE_ACCESS_TOKEN") != cached_token:
+            st.info("A cached session token from earlier today was found.")
+            if st.button("Use cached session"):
+                _finish_login(api_key, cached_token)
 
         mode = st.radio(
             "Login method",
@@ -108,7 +178,6 @@ def _render_paste_token(api_key: str, api_secret: str) -> None:
             from kiteconnect.exceptions import KiteException
 
             from app.data.kite_auth import extract_request_token
-            from app.data.kite_client import reset_kite_client
 
             request_token = extract_request_token(raw)
             session_data = kite.generate_session(request_token, api_secret=api_secret)
@@ -122,11 +191,7 @@ def _render_paste_token(api_key: str, api_secret: str) -> None:
             st.error(f"Token exchange failed: {exc}")
             return
 
-    os.environ["KITE_API_KEY"] = api_key
-    os.environ["KITE_ACCESS_TOKEN"] = session_data["access_token"]
-    reset_kite_client()
-    st.success("Logged in — today's Kite session is active.")
-    st.rerun()
+    _finish_login(api_key, session_data["access_token"])
 
 
 def _render_auto_login(api_key: str, api_secret: str) -> None:
@@ -160,7 +225,6 @@ def _render_auto_login(api_key: str, api_secret: str) -> None:
             from kiteconnect.exceptions import KiteException
 
             from app.data.kite_auth import automated_request_token, request_token_with_totp_code
-            from app.data.kite_client import reset_kite_client
 
             if totp_secret:
                 request_token = automated_request_token(api_key, user_id, password, totp_secret)
@@ -191,8 +255,4 @@ def _render_auto_login(api_key: str, api_secret: str) -> None:
             # but there's no reason to keep a reference around longer than this.
             password = None  # noqa: F841
 
-    os.environ["KITE_API_KEY"] = api_key
-    os.environ["KITE_ACCESS_TOKEN"] = session_data["access_token"]
-    reset_kite_client()
-    st.success("Logged in — today's Kite session is active.")
-    st.rerun()
+    _finish_login(api_key, session_data["access_token"])

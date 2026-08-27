@@ -7,6 +7,8 @@ __pycache__/
 # Secrets — never commit real broker credentials
 backend/.env
 .env
+.streamlit/secrets.toml
+.streamlit/kite_session_cache.json
 
 # Node / Next.js
 frontend/node_modules/
