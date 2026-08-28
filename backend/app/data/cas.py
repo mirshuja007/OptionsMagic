@@ -23,6 +23,7 @@ band below are computed independently from ordinary minute-bar data.
 """
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 
@@ -87,3 +88,124 @@ def reference_price(series: list[tuple[datetime, float, int]]) -> float | None:
 def reference_band(ref_price: float) -> tuple[float, float]:
     """(lower, upper) +/-3% auction price band around the reference price."""
     return ref_price * (1 - REFERENCE_BAND_PCT), ref_price * (1 + REFERENCE_BAND_PCT)
+
+
+@dataclass(frozen=True)
+class ConstituentSnapshot:
+    """One tracked stock's CAS reference price/band alongside its most
+    recent traded price and how far that's drifted from the reference —
+    all real, directly-computed numbers, no modeling involved.
+    """
+
+    symbol: str
+    display_name: str
+    reference_price: float | None
+    band_lower: float | None
+    band_upper: float | None
+    current_price: float | None
+    deviation_pct: float | None  # (current - reference) / reference * 100
+
+
+def constituent_snapshot(
+    symbol: str, display_name: str, series: list[tuple[datetime, float, int]]
+) -> ConstituentSnapshot:
+    """Build one stock's snapshot from its minute-bar series (same series
+    ``app.data.feed.generate_minute_series`` returns) — the last bar is
+    taken as "current price" so this needs only one data call per stock,
+    not a separate quote fetch.
+    """
+    if not series:
+        return ConstituentSnapshot(symbol, display_name, None, None, None, None, None)
+
+    ref = reference_price(series)
+    current = series[-1][1]
+    if ref is None:
+        return ConstituentSnapshot(symbol, display_name, None, None, None, current, None)
+
+    lower, upper = reference_band(ref)
+    deviation = (current - ref) / ref * 100.0
+    return ConstituentSnapshot(symbol, display_name, ref, lower, upper, current, deviation)
+
+
+# Magnitude buckets for the constituent-bias signal below, in ascending
+# order of |average deviation %| — (upper_bound_exclusive, label). The last
+# entry's bound is infinite so every value lands in some bucket.
+_MAGNITUDE_BUCKETS: list[tuple[float, str]] = [
+    (0.1, "< 0.1%"),
+    (0.3, "0.1% – 0.3%"),
+    (1.0, "0.3% – 1%"),
+    (3.0, "1% – 3%"),
+    (float("inf"), "> 3%"),
+]
+
+
+def _magnitude_bucket(abs_pct: float) -> str:
+    for bound, label in _MAGNITUDE_BUCKETS:
+        if abs_pct < bound:
+            return label
+    return _MAGNITUDE_BUCKETS[-1][1]  # unreachable given the inf bound, kept for clarity
+
+
+@dataclass(frozen=True)
+class ConstituentBiasSignal:
+    """A transparent, equal-weighted aggregate of how the tracked
+    constituents are trading relative to their own CAS reference prices —
+    NOT a prediction, NOT a statistically validated or backtested model,
+    and NOT a probability of the index actually moving. It is exactly what
+    its fields say: how many of N tracked stocks are currently above/below
+    their reference price, and the plain average of their % deviations.
+    Read ``breadth_pct`` as "how many heavyweight constituents agree with
+    the average direction right now," not as a confidence score.
+    """
+
+    direction: str  # "Upside" | "Downside" | "Flat"
+    magnitude_bucket: str
+    average_deviation_pct: float
+    breadth_pct: float
+    n_up: int
+    n_down: int
+    n_flat: int
+    n_total: int
+    n_with_data: int
+
+
+def compute_bias_signal(
+    snapshots: list[ConstituentSnapshot], flat_threshold_pct: float = 0.02
+) -> ConstituentBiasSignal | None:
+    """Equal-weighted average deviation + breadth across every snapshot
+    that actually has a reference price yet (``None`` if none do — e.g.
+    called before 3:00pm IST). Equal-weighted deliberately: real NIFTY/
+    SENSEX index weights are known precisely for only some of the tracked
+    stocks (see instruments.py's STOCKS comments) — mixing confirmed and
+    estimated weights into one blended figure would look more precise than
+    it is. ``flat_threshold_pct`` is the +/- band around 0% treated as "not
+    really moved" for both the direction call and the breadth count.
+    """
+    usable = [s for s in snapshots if s.deviation_pct is not None]
+    if not usable:
+        return None
+
+    deviations = [s.deviation_pct for s in usable]
+    average = statistics.fmean(deviations)
+    n_up = sum(1 for d in deviations if d > flat_threshold_pct)
+    n_down = sum(1 for d in deviations if d < -flat_threshold_pct)
+    n_flat = len(deviations) - n_up - n_down
+
+    if average > flat_threshold_pct:
+        direction, breadth = "Upside", n_up / len(deviations) * 100.0
+    elif average < -flat_threshold_pct:
+        direction, breadth = "Downside", n_down / len(deviations) * 100.0
+    else:
+        direction, breadth = "Flat", n_flat / len(deviations) * 100.0
+
+    return ConstituentBiasSignal(
+        direction=direction,
+        magnitude_bucket=_magnitude_bucket(abs(average)),
+        average_deviation_pct=round(average, 3),
+        breadth_pct=round(breadth, 1),
+        n_up=n_up,
+        n_down=n_down,
+        n_flat=n_flat,
+        n_total=len(snapshots),
+        n_with_data=len(usable),
+    )

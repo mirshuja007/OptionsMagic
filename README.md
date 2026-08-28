@@ -276,7 +276,22 @@ Finance, L&T, HUL, Sun Pharma, Infosys, Titan, Maruti, Kotak Mahindra
 Bank, Axis Bank, HCL Tech, ITC, NTPC, M&M, InterGlobe Aviation, Trent,
 Tech Mahindra, Tata Steel — the names that actually move both indices)
 rather than the full ~200-stock F&O/CAS universe — see
-`app.data.instruments.STOCKS`. When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
+`app.data.instruments.STOCKS`.
+
+Below the single-stock view, a **Constituent Overview** table (load-on-demand
+button, not auto-refreshing — it's one data call per stock) shows reference
+price, band, current price, and deviation for all tracked stocks at once,
+followed by a **Constituent Bias Signal**: the equal-weighted average
+deviation and "breadth" (how many constituents agree with that direction)
+across whichever stocks have a reference price so far, bucketed into your
+0.1%/0.3%/1%/3% magnitude ranges. This is explicitly **not** a prediction or
+probability of index movement — there's no statistical or backtested model
+behind it, just a transparent readout of real, currently-observed deviations
+(see `app.data.cas.compute_bias_signal`'s docstring). No "equilibrium price"
+column either, for the same reason as below: that needs live in-auction
+order-book data this app doesn't have confirmed access to.
+
+When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
 (diagnostic)" section fetches a raw Kite Connect quote for the selected
 stock and flags any field it doesn't recognize — this is how to check,
 live during the 3:15-3:35pm IST window, whether Kite's API actually

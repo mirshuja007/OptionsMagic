@@ -17,9 +17,18 @@ exposes the live in-auction indicative-close/imbalance-quantity fields that
 Kite Web shows is unconfirmed; the "Live auction data (diagnostic)" section
 below is how that gets checked, live, the next time this runs during the
 actual 3:15-3:35pm IST window with a working Kite session.
+
+The "Constituent Overview" table and its Bias Signal (see
+``app.data.cas.compute_bias_signal``) are deliberately NOT a prediction of
+index direction — there's no statistically validated or backtested model
+behind them, just a transparent, equal-weighted readout of how far the
+tracked stocks are currently trading from their own reference prices. See
+that function's docstring before changing how this is presented; the
+honesty of that framing is the point, not an accident.
 """
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from streamlit_pages.common import fmt, safe_call
@@ -99,6 +108,8 @@ def render() -> None:
             "of continuous trading (3:00-3:30pm)."
         )
 
+    _render_constituent_overview(STOCKS)
+
     if get_active_provider() != "kite":
         return
 
@@ -131,3 +142,82 @@ def render() -> None:
                         "Only the usual quote fields are present — no CAS-specific field (reference price / "
                         "indicative close / imbalance quantity) found in this response."
                     )
+
+
+def _render_constituent_overview(stocks: dict) -> None:
+    """All tracked stocks' reference price/band/current-price/deviation in
+    one table, plus the honest bias-signal readout — see the module
+    docstring's note on why that signal is framed the way it is. Gated
+    behind a button rather than auto-loading: this fans out to one
+    ``generate_minute_series`` call per stock (23, currently), which on
+    live Kite data means 23 Historical Data API calls — a separately
+    rate-limited, paid add-on (see kite_feed.py's module docstring) — not
+    something to fire on every page load/rerun.
+    """
+    from app.data.cas import compute_bias_signal, constituent_snapshot
+    from app.data.feed import generate_minute_series
+
+    st.divider()
+    st.subheader("Constituent Overview")
+    st.caption(
+        f"Reference price, auction band, current price, and deviation for all {len(stocks)} tracked stocks "
+        "at once. Loads on demand (one data call per stock) rather than automatically — see the button "
+        "below before assuming this is live-refreshing."
+    )
+
+    if st.button(f"Load all {len(stocks)} constituents", type="primary"):
+        snapshots = []
+        with st.spinner(f"Loading {len(stocks)} constituents…"):
+            for sym, instrument in sorted(stocks.items()):
+                series, _err = safe_call(generate_minute_series, sym)
+                snapshots.append(constituent_snapshot(sym, instrument.display_name, series or []))
+        st.session_state["cas_constituent_snapshots"] = snapshots
+
+    snapshots = st.session_state.get("cas_constituent_snapshots")
+    if not snapshots:
+        return
+
+    rows = [
+        {
+            "Symbol": s.symbol,
+            "Company": s.display_name,
+            "Reference Price": fmt(s.reference_price) if s.reference_price is not None else "—",
+            "Band Lower": fmt(s.band_lower) if s.band_lower is not None else "—",
+            "Band Upper": fmt(s.band_upper) if s.band_upper is not None else "—",
+            "Current Price": fmt(s.current_price) if s.current_price is not None else "—",
+            "Deviation": f"{s.deviation_pct:+.2f}%" if s.deviation_pct is not None else "—",
+        }
+        for s in snapshots
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.caption(
+        "No \"equilibrium price\" column — that would need Kite's live in-auction order-book data, which "
+        "isn't confirmed to be available via the API yet (see \"Live auction data (diagnostic)\" below)."
+    )
+
+    signal = compute_bias_signal(snapshots)
+    if signal is None:
+        st.info("No reference prices available across the tracked constituents yet — check back after 3:00pm IST.")
+        return
+
+    st.markdown("#### Constituent Bias Signal")
+    st.caption(
+        "An honest, transparent readout of how the tracked constituents are trading relative to their own "
+        "CAS reference prices right now — equal-weighted average deviation and breadth (how many agree with "
+        "that direction). This is **not** a prediction, **not** a probability, and has no statistical or "
+        "backtested validity as a forecast of index movement. It's exactly what the numbers below say, and "
+        "nothing more."
+    )
+    b1, b2, b3 = st.columns(3)
+    b1.metric("Direction", signal.direction)
+    b2.metric("Magnitude", signal.magnitude_bucket)
+    b3.metric("Avg. Deviation", f"{signal.average_deviation_pct:+.2f}%")
+    b4, b5 = st.columns(2)
+    b4.metric(
+        "Breadth",
+        f"{signal.breadth_pct:.0f}%",
+        help="Share of constituents-with-data trading in the same direction as the average.",
+    )
+    b5.metric("Up / Down / Flat", f"{signal.n_up} / {signal.n_down} / {signal.n_flat}")
+    if signal.n_with_data < signal.n_total:
+        st.caption(f"Based on {signal.n_with_data} of {signal.n_total} constituents with a reference price so far.")

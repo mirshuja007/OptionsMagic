@@ -7,6 +7,8 @@ import pytest
 from app.data.cas import (
     REFERENCE_BAND_PCT,
     cas_window_status,
+    compute_bias_signal,
+    constituent_snapshot,
     reference_band,
     reference_price,
 )
@@ -80,3 +82,80 @@ def test_reference_band_is_symmetric_percent_of_reference_price():
     assert lower == pytest.approx(1000.0 * (1 - REFERENCE_BAND_PCT))
     assert upper == pytest.approx(1000.0 * (1 + REFERENCE_BAND_PCT))
     assert lower < 1000.0 < upper
+
+
+def test_constituent_snapshot_computes_deviation_from_reference():
+    series = _series([(15, 0, 100.0, 10), (15, 10, 100.0, 10), (15, 30, 103.0, 5)])
+    snap = constituent_snapshot("FOO", "Foo Ltd", series)
+    assert snap.reference_price == pytest.approx(100.0)
+    assert snap.current_price == pytest.approx(103.0)  # last bar, after the reference window
+    assert snap.deviation_pct == pytest.approx(3.0)
+    assert snap.band_lower == pytest.approx(97.0)
+    assert snap.band_upper == pytest.approx(103.0)
+
+
+def test_constituent_snapshot_no_reference_yet_still_reports_current_price():
+    series = _series([(9, 15, 50.0, 10), (10, 0, 51.0, 20)])
+    snap = constituent_snapshot("FOO", "Foo Ltd", series)
+    assert snap.reference_price is None
+    assert snap.deviation_pct is None
+    assert snap.current_price == pytest.approx(51.0)
+
+
+def test_constituent_snapshot_empty_series():
+    snap = constituent_snapshot("FOO", "Foo Ltd", [])
+    assert snap.reference_price is None
+    assert snap.current_price is None
+    assert snap.deviation_pct is None
+
+
+def _snap(deviation_pct: float | None):
+    if deviation_pct is None:
+        # A bar outside the 3:00-3:15pm reference window -> no reference price yet.
+        return constituent_snapshot("X", "X", _series([(10, 0, 100.0, 10)]))
+    return constituent_snapshot(
+        "X", "X",
+        _series([(15, 0, 100.0, 10), (15, 30, 100.0 * (1 + deviation_pct / 100.0), 1)]),
+    )
+
+
+def test_compute_bias_signal_none_when_no_snapshot_has_data():
+    assert compute_bias_signal([_snap(None), _snap(None)]) is None
+
+
+def test_compute_bias_signal_upside_and_breadth():
+    snapshots = [_snap(1.0), _snap(2.0), _snap(-0.5)]
+    signal = compute_bias_signal(snapshots)
+    assert signal.direction == "Upside"
+    assert signal.n_up == 2
+    assert signal.n_down == 1
+    assert signal.n_total == 3
+    assert signal.n_with_data == 3
+    assert signal.average_deviation_pct == pytest.approx((1.0 + 2.0 - 0.5) / 3, abs=1e-3)
+    assert signal.breadth_pct == pytest.approx(2 / 3 * 100.0, abs=0.1)
+
+
+def test_compute_bias_signal_downside():
+    signal = compute_bias_signal([_snap(-1.0), _snap(-2.0), _snap(0.1)])
+    assert signal.direction == "Downside"
+    assert signal.n_down == 2
+
+
+def test_compute_bias_signal_flat_within_threshold():
+    signal = compute_bias_signal([_snap(0.01), _snap(-0.01), _snap(0.0)], flat_threshold_pct=0.02)
+    assert signal.direction == "Flat"
+    assert signal.n_flat == 3
+
+
+def test_compute_bias_signal_magnitude_buckets():
+    assert compute_bias_signal([_snap(0.05)]).magnitude_bucket == "< 0.1%"
+    assert compute_bias_signal([_snap(0.2)]).magnitude_bucket == "0.1% – 0.3%"
+    assert compute_bias_signal([_snap(0.5)]).magnitude_bucket == "0.3% – 1%"
+    assert compute_bias_signal([_snap(2.0)]).magnitude_bucket == "1% – 3%"
+    assert compute_bias_signal([_snap(5.0)]).magnitude_bucket == "> 3%"
+
+
+def test_compute_bias_signal_ignores_snapshots_without_reference():
+    signal = compute_bias_signal([_snap(1.0), _snap(None)])
+    assert signal.n_total == 2
+    assert signal.n_with_data == 1
