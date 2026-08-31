@@ -142,8 +142,10 @@ def generate_option_chain(
     as_of: datetime | None = None,
     seed: int | None = None,
 ) -> OptionChain:
+    from app.data.cas import IST
+
     instrument = get_instrument(symbol)
-    as_of = as_of or datetime.now()
+    as_of = as_of or datetime.now(IST).replace(tzinfo=None)
     expiry = expiry or _default_expiry(instrument, as_of.date())
     expiry_dt = datetime.combine(expiry, instrument.session_end)
     t = max((expiry_dt - as_of).total_seconds() / (365.0 * 24 * 3600), 1e-6)

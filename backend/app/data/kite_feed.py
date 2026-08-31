@@ -115,10 +115,12 @@ def available_expiries(symbol: str) -> list[date]:
     close (see ``_effective_expiry_cutoff_date``), so the frontend's expiry
     selector doesn't default to an already-settled contract.
     """
+    from app.data.cas import IST
+
     instrument = get_instrument(symbol)
     rows = _option_rows_for(instrument)
     all_expiries = sorted({_as_date(r["expiry"]) for r in rows})
-    cutoff = _effective_expiry_cutoff_date(instrument, datetime.now())
+    cutoff = _effective_expiry_cutoff_date(instrument, datetime.now(IST).replace(tzinfo=None))
     upcoming = [e for e in all_expiries if e >= cutoff]
     return upcoming or all_expiries
 
@@ -291,9 +293,11 @@ def generate_option_chain(
     num_strikes: int | None = None,
     as_of: datetime | None = None,
 ) -> OptionChain:
+    from app.data.cas import IST
+
     instrument = get_instrument(symbol)
     kite = get_kite_client()
-    as_of = as_of or datetime.now()
+    as_of = as_of or datetime.now(IST).replace(tzinfo=None)
 
     option_rows = _option_rows_for(instrument)
     expiries = sorted({_as_date(r["expiry"]) for r in option_rows})
@@ -391,7 +395,17 @@ def generate_minute_series(
         # give for minutes that haven't happened yet. Cap the request at
         # "now" instead, and give a clear, specific error if the session
         # hasn't opened yet rather than a confusing empty result.
-        now = datetime.now()
+        # NSE session_start/session_end are IST wall-clock times, so "now"
+        # must be read in IST too — a bare datetime.now() reads the host's
+        # system clock, which on a cloud container is almost always UTC,
+        # not IST. Comparing that naive UTC reading directly against IST
+        # wall-clock start/end silently under-fetches by ~5.5 hours (e.g.
+        # at real IST 15:25, naive UTC reads ~09:55, capping the request
+        # there and missing everything after — including a 3:00-3:15pm
+        # CAS reference window query).
+        from app.data.cas import IST
+
+        now = datetime.now(IST).replace(tzinfo=None)
         if now < start:
             raise KiteFeedError(
                 f"Market hasn't opened yet today for {symbol} (session starts {instrument.session_start.strftime('%H:%M')}); "

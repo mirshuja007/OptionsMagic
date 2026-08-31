@@ -1,4 +1,4 @@
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, datetime, time as dtime, timedelta, timezone
 
 import pytest
 
@@ -374,13 +374,26 @@ class _FrozenDateTime(datetime):
     """A ``datetime`` subclass whose ``now()`` returns a fixed instant —
     used to test kite_feed's "cap the historical_data request at now"
     behavior without depending on when the test suite actually runs.
+
+    ``_frozen_now`` may be naive (existing tests: ``now()`` returns it
+    unchanged, ignoring ``tz`` — those tests don't care about timezone
+    conversion) or timezone-aware (new tests below: properly simulates a
+    real clock, so ``now(IST)`` and bare ``now()`` correctly return
+    different wall-clock readings — exactly the distinction the
+    IST-vs-server-local bug this file regression-tests depended on).
     """
 
     _frozen_now: datetime
 
     @classmethod
     def now(cls, tz=None):
-        return cls._frozen_now
+        frozen = cls._frozen_now
+        if frozen.tzinfo is None:
+            return frozen
+        if tz is None:
+            # Simulate a UTC-timezone host: bare now() reads naive UTC wall time.
+            return frozen.astimezone(timezone.utc).replace(tzinfo=None)
+        return frozen.astimezone(tz)
 
 
 def test_generate_minute_series_raises_clear_error_before_market_open(monkeypatch):
@@ -411,6 +424,33 @@ def test_generate_minute_series_caps_request_at_now_for_todays_in_progress_sessi
 
     assert fake.last_historical_call["to_date"] == frozen_now
     assert fake.last_historical_call["to_date"] < datetime.combine(today, dtime(15, 30))
+
+
+def test_generate_minute_series_caps_request_using_ist_not_server_local_time(monkeypatch):
+    """Regression: kite_feed used to call bare datetime.now() to cap the
+    request, comparing it directly against IST-wall-clock-intended
+    start/end — correct only by coincidence if the server's own system
+    clock happens to be IST. On a UTC-timezone container (the real-world
+    case, e.g. Streamlit Cloud), that under-fetches by ~5.5 hours: at real
+    IST 15:25, naive UTC reads ~09:55, so the request got capped there,
+    missing the entire 3:00-3:15pm CAS reference window.
+    """
+    today = date.today()
+    # Real instant: 15:25 IST == 09:55 UTC.
+    frozen_instant = datetime(today.year, today.month, today.day, 9, 55, tzinfo=timezone.utc)
+    _FrozenDateTime._frozen_now = frozen_instant
+    monkeypatch.setattr(kite_feed, "datetime", _FrozenDateTime)
+
+    candles = [{"date": datetime.combine(today, dtime(9, 15)), "close": 24800.0, "volume": 100}]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    kite_feed.generate_minute_series("NIFTY", session_date=today)
+
+    # The request must be capped at IST 15:25 wall-clock (naive, matching
+    # start/end's convention), not at 09:55 (the naive-UTC misread).
+    assert fake.last_historical_call["to_date"] == datetime.combine(today, dtime(15, 25))
 
 
 def test_available_expiries_returns_sorted_unique_listed_dates(monkeypatch):
