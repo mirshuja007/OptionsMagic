@@ -28,6 +28,12 @@ stock equally or weighted by real NIFTY 50 / SENSEX 30 index weight (see
 snapshot, not scraped). See ``compute_bias_signal``'s docstring before
 changing how this is presented; the honesty of that framing is the point,
 not an accident.
+
+The "CAS History" section below it is the one place this page *does* build
+toward a real probability estimate — by logging actual (reference price,
+settled close) outcomes over time via ``app.data.cas_history`` and reading
+off the empirical distribution once enough sessions have accumulated. It
+starts empty; there is no shortcut around actually waiting for the data.
 """
 from __future__ import annotations
 
@@ -112,6 +118,7 @@ def render() -> None:
         )
 
     _render_constituent_overview(STOCKS)
+    _render_cas_history(STOCKS)
 
     if get_active_provider() != "kite":
         return
@@ -243,3 +250,86 @@ def _render_constituent_overview(stocks: dict) -> None:
               help="Raw stock counts — unaffected by the weighting basis above.")
     if signal.n_with_data < signal.n_total:
         st.caption(f"Based on {signal.n_with_data} of {signal.n_total} constituents with a reference price so far.")
+
+
+def _render_cas_history(stocks: dict) -> None:
+    """A persistent log of real CAS outcomes (reference price vs. actual
+    settled close) — see ``app.data.cas_history``'s module docstring. This
+    is the only honest path to ever answering "what's the probability of a
+    move like today's": a real empirical distribution built from actually
+    logged sessions, not a fabricated formula. Starts empty; grows one row
+    per symbol per click of "Log today's CAS outcome", once the auction has
+    genuinely settled (after 3:35pm IST).
+    """
+    from app.data.cas_history import DEFAULT_LOG_PATH, load_records, record_session_outcome, summarize_history
+
+    st.divider()
+    st.subheader("CAS History")
+    st.caption(
+        "A persistent log of every session's actual outcome — the 3:00-3:15pm reference price vs. the day's "
+        "real settled close — for NIFTY, SENSEX, and all tracked stocks. This is the only honest foundation "
+        "for a real probability estimate: an empirical distribution built from actual logged sessions, not a "
+        "fitted or backtested model. It starts empty and only grows when you log a session."
+    )
+    st.caption(
+        "⚠️ On Streamlit Community Cloud, local files don't survive a redeploy or an idle sleep/wake cycle — "
+        "use \"Download log (CSV)\" below periodically to keep a real backup, or this log can vanish."
+    )
+
+    log_symbols = ["NIFTY", "SENSEX"] + sorted(stocks.keys())
+    if st.button(f"Log today's CAS outcome ({len(log_symbols)} symbols)"):
+        logged, errors = [], []
+        with st.spinner(f"Logging {len(log_symbols)} symbols…"):
+            for sym in log_symbols:
+                try:
+                    record_session_outcome(sym)
+                    logged.append(sym)
+                except ValueError as exc:
+                    errors.append(str(exc))
+        if logged:
+            st.success(f"Logged {len(logged)} symbol(s): {', '.join(logged)}")
+        for msg in sorted(set(errors))[:3]:
+            st.warning(msg)
+
+    all_records = load_records()
+    if not all_records:
+        st.info("Nothing logged yet.")
+        return
+
+    if DEFAULT_LOG_PATH.exists():
+        st.download_button(
+            "Download log (CSV)", DEFAULT_LOG_PATH.read_bytes(),
+            file_name="cas_session_log.csv", mime="text/csv",
+        )
+
+    logged_symbols = sorted({r.symbol for r in all_records})
+    hist_symbol = st.selectbox(
+        "Symbol", logged_symbols, index=logged_symbols.index("NIFTY") if "NIFTY" in logged_symbols else 0,
+    )
+    summary = summarize_history(hist_symbol)
+    if summary is None:
+        return
+
+    h1, h2, h3 = st.columns(3)
+    h1.metric("Sessions logged", summary.n_sessions)
+    h2.metric("Mean move", f"{summary.mean_move_pct:+.2f}%")
+    h3.metric(
+        "Std dev", f"{summary.std_move_pct:.2f}%" if summary.std_move_pct is not None else "—",
+        help="Needs at least 2 logged sessions.",
+    )
+    h4, h5, h6 = st.columns(3)
+    h4.metric("Upside", f"{summary.pct_upside:.0f}%")
+    h5.metric("Downside", f"{summary.pct_downside:.0f}%")
+    h6.metric("Flat", f"{summary.pct_flat:.0f}%")
+    st.caption(f"Range so far: {summary.min_move_pct:+.2f}% to {summary.max_move_pct:+.2f}%.")
+
+    bucket_df = pd.DataFrame(
+        {"Move size": list(summary.bucket_counts.keys()), "Sessions": list(summary.bucket_counts.values())}
+    ).set_index("Move size")
+    st.bar_chart(bucket_df)
+
+    if summary.n_sessions < 20:
+        st.caption(
+            f"Only {summary.n_sessions} session(s) logged — nowhere near enough for a reliable distribution "
+            "yet. Treat every number above as \"what's happened so far,\" not a forecast."
+        )

@@ -305,6 +305,21 @@ exposes the same reference-price/indicative-close/imbalance-quantity
 fields Kite Web shows (unconfirmed as of this writing — see
 `app.data.cas`'s module docstring).
 
+A **CAS History** section (works in mock or kite mode) is the one place
+this page builds toward an actual probability: a "Log today's CAS outcome"
+button captures (reference price, real settled close) for NIFTY, SENSEX,
+and every tracked stock into a persistent CSV log (`app.data.cas_history`),
+gated so it only records after the auction has genuinely settled (3:35pm
+IST) rather than a mid-session price masquerading as the final one. Once a
+symbol has logged sessions, it shows the real empirical distribution of
+past moves — mean/std, up/down/flat split, a move-size histogram — always
+next to `n_sessions`, since a handful of days is nowhere near enough to
+trust. This is explicitly *not* a fitted or backtested model, just
+"what's actually happened so far." **Persistence caveat:** Streamlit
+Community Cloud's filesystem resets on redeploy and on idle sleep/wake, so
+this log can vanish between sessions there — use the "Download log (CSV)"
+button periodically to keep a real backup.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

@@ -152,10 +152,13 @@ def constituent_snapshot(
     return ConstituentSnapshot(symbol, display_name, ref, lower, upper, current, deviation)
 
 
-# Magnitude buckets for the constituent-bias signal below, in ascending
-# order of |average deviation %| — (upper_bound_exclusive, label). The last
-# entry's bound is infinite so every value lands in some bucket.
-_MAGNITUDE_BUCKETS: list[tuple[float, str]] = [
+# Magnitude buckets for the constituent-bias signal below (and reused by
+# app.data.cas_history for the empirical move-size histogram), in ascending
+# order of |deviation %| — (upper_bound_exclusive, label). The last entry's
+# bound is infinite so every value lands in some bucket. Public (not
+# underscore-prefixed): shared across modules so both signals report
+# magnitude with the same bucket boundaries.
+MAGNITUDE_BUCKETS: list[tuple[float, str]] = [
     (0.1, "< 0.1%"),
     (0.3, "0.1% – 0.3%"),
     (1.0, "0.3% – 1%"),
@@ -164,11 +167,11 @@ _MAGNITUDE_BUCKETS: list[tuple[float, str]] = [
 ]
 
 
-def _magnitude_bucket(abs_pct: float) -> str:
-    for bound, label in _MAGNITUDE_BUCKETS:
+def magnitude_bucket(abs_pct: float) -> str:
+    for bound, label in MAGNITUDE_BUCKETS:
         if abs_pct < bound:
             return label
-    return _MAGNITUDE_BUCKETS[-1][1]  # unreachable given the inf bound, kept for clarity
+    return MAGNITUDE_BUCKETS[-1][1]  # unreachable given the inf bound, kept for clarity
 
 
 @dataclass(frozen=True)
@@ -253,7 +256,7 @@ def compute_bias_signal(
 
     return ConstituentBiasSignal(
         direction=direction,
-        magnitude_bucket=_magnitude_bucket(abs(average)),
+        magnitude_bucket=magnitude_bucket(abs(average)),
         average_deviation_pct=round(average, 3),
         breadth_pct=round(breadth, 1),
         n_up=n_up,
