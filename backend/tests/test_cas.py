@@ -6,6 +6,7 @@ import pytest
 
 from app.data.cas import (
     REFERENCE_BAND_PCT,
+    ConstituentSnapshot,
     cas_window_status,
     compute_bias_signal,
     constituent_snapshot,
@@ -178,3 +179,51 @@ def test_compute_bias_signal_ignores_snapshots_without_reference():
     signal = compute_bias_signal([_snap(1.0), _snap(None)])
     assert signal.n_total == 2
     assert signal.n_with_data == 1
+
+
+def test_compute_bias_signal_default_weighting_label():
+    assert compute_bias_signal([_snap(1.0)]).weighting_label == "Equal-weighted"
+
+
+def _weighted_snap(symbol: str, deviation_pct: float) -> ConstituentSnapshot:
+    return ConstituentSnapshot(symbol, symbol, 100.0, 97.0, 103.0, 100.0 * (1 + deviation_pct / 100.0), deviation_pct)
+
+
+def test_compute_bias_signal_weighted_average_matches_weighted_mean_formula():
+    snapshots = [_weighted_snap("A", 3.0), _weighted_snap("B", -1.0)]
+    weights = {"A": 3.0, "B": 1.0}
+    signal = compute_bias_signal(snapshots, weights=weights, weighting_label="Test-weighted")
+    expected = (3.0 * 3.0 + 1.0 * -1.0) / (3.0 + 1.0)
+    assert signal.average_deviation_pct == pytest.approx(expected, abs=1e-3)
+    assert signal.weighting_label == "Test-weighted"
+
+
+def test_compute_bias_signal_weighted_breadth_is_weight_share_not_headcount():
+    # Three "up" stocks with tiny weight vs one "down" stock with huge
+    # weight — headcount says Upside 3/4, but weighted, the heavy "down"
+    # stock should dominate both the direction and the breadth.
+    snapshots = [
+        _weighted_snap("A", 0.5), _weighted_snap("B", 0.5), _weighted_snap("C", 0.5),
+        _weighted_snap("D", -5.0),
+    ]
+    weights = {"A": 1.0, "B": 1.0, "C": 1.0, "D": 100.0}
+    signal = compute_bias_signal(snapshots, weights=weights, weighting_label="Test-weighted")
+    assert signal.direction == "Downside"
+    assert signal.breadth_pct == pytest.approx(100 / 103 * 100.0, abs=0.1)
+    # headcount fields are unaffected by weighting — still the raw counts
+    assert signal.n_up == 3
+    assert signal.n_down == 1
+
+
+def test_compute_bias_signal_raises_when_weight_missing_for_a_tracked_symbol():
+    snapshots = [_weighted_snap("A", 1.0), _weighted_snap("B", 1.0)]
+    with pytest.raises(ValueError, match="B"):
+        compute_bias_signal(snapshots, weights={"A": 1.0})
+
+
+def test_compute_bias_signal_weighted_equals_equal_weighted_when_all_weights_equal():
+    snapshots = [_weighted_snap("A", 2.0), _weighted_snap("B", -1.0), _weighted_snap("C", 0.5)]
+    equal = compute_bias_signal(snapshots)
+    weighted = compute_bias_signal(snapshots, weights={"A": 5.0, "B": 5.0, "C": 5.0})
+    assert weighted.average_deviation_pct == pytest.approx(equal.average_deviation_pct, abs=1e-3)
+    assert weighted.breadth_pct == pytest.approx(equal.breadth_pct, abs=0.1)

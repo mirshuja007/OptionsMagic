@@ -173,14 +173,15 @@ def _magnitude_bucket(abs_pct: float) -> str:
 
 @dataclass(frozen=True)
 class ConstituentBiasSignal:
-    """A transparent, equal-weighted aggregate of how the tracked
-    constituents are trading relative to their own CAS reference prices —
-    NOT a prediction, NOT a statistically validated or backtested model,
-    and NOT a probability of the index actually moving. It is exactly what
-    its fields say: how many of N tracked stocks are currently above/below
-    their reference price, and the plain average of their % deviations.
-    Read ``breadth_pct`` as "how many heavyweight constituents agree with
-    the average direction right now," not as a confidence score.
+    """A transparent aggregate of how the tracked constituents are trading
+    relative to their own CAS reference prices — NOT a prediction, NOT a
+    statistically validated or backtested model, and NOT a probability of
+    the index actually moving. It is exactly what its fields say: how much
+    of the tracked universe (by count, or by real index weight — see
+    ``weighting_label``) is currently above/below its reference price, and
+    the (equal- or weight-) average of their % deviations. Read
+    ``breadth_pct`` as "how much of the tracked universe agrees with the
+    average direction right now," not as a confidence score.
     """
 
     direction: str  # "Upside" | "Downside" | "Flat"
@@ -192,36 +193,63 @@ class ConstituentBiasSignal:
     n_flat: int
     n_total: int
     n_with_data: int
+    weighting_label: str = "Equal-weighted"
 
 
 def compute_bias_signal(
-    snapshots: list[ConstituentSnapshot], flat_threshold_pct: float = 0.02
+    snapshots: list[ConstituentSnapshot],
+    flat_threshold_pct: float = 0.02,
+    weights: dict[str, float] | None = None,
+    weighting_label: str = "Equal-weighted",
 ) -> ConstituentBiasSignal | None:
-    """Equal-weighted average deviation + breadth across every snapshot
-    that actually has a reference price yet (``None`` if none do — e.g.
-    called before 3:00pm IST). Equal-weighted deliberately: real NIFTY/
-    SENSEX index weights are known precisely for only some of the tracked
-    stocks (see instruments.py's STOCKS comments) — mixing confirmed and
-    estimated weights into one blended figure would look more precise than
-    it is. ``flat_threshold_pct`` is the +/- band around 0% treated as "not
+    """Average deviation + breadth across every snapshot that actually has
+    a reference price yet (``None`` if none do — e.g. called before 3:00pm
+    IST). ``flat_threshold_pct`` is the +/- band around 0% treated as "not
     really moved" for both the direction call and the breadth count.
+
+    Equal-weighted by default (every snapshot counts as weight 1) — this
+    was the only honest option before real index weights were confirmed
+    for the tracked universe; see ``app.data.index_weights`` for where
+    that data now comes from. Pass ``weights`` (e.g.
+    ``index_weights.NIFTY50_WEIGHTS_PCT``) to instead weight by real index
+    weight: the average becomes a weighted mean (sum(w*dev)/sum(w), so it's
+    correctly normalized even though the tracked universe is a subset of
+    the full index), and breadth becomes "% of tracked *weight* agreeing
+    with the direction" rather than "% of tracked *stock count*". Every
+    snapshot with data must have an entry in ``weights`` — this raises
+    rather than silently mis-weighting a stock with no confirmed real
+    weight. Set ``weighting_label`` to whatever the caller wants the UI to
+    show for this weighting basis (e.g. "NIFTY 50-weighted").
     """
     usable = [s for s in snapshots if s.deviation_pct is not None]
     if not usable:
         return None
 
-    deviations = [s.deviation_pct for s in usable]
-    average = statistics.fmean(deviations)
-    n_up = sum(1 for d in deviations if d > flat_threshold_pct)
-    n_down = sum(1 for d in deviations if d < -flat_threshold_pct)
-    n_flat = len(deviations) - n_up - n_down
+    if weights is None:
+        w = {s.symbol: 1.0 for s in usable}
+    else:
+        missing = sorted({s.symbol for s in usable if s.symbol not in weights})
+        if missing:
+            raise ValueError(f"no weight supplied for tracked symbol(s): {missing}")
+        w = {s.symbol: weights[s.symbol] for s in usable}
+
+    total_weight = sum(w[s.symbol] for s in usable)
+    average = sum(w[s.symbol] * s.deviation_pct for s in usable) / total_weight
+
+    n_up = sum(1 for s in usable if s.deviation_pct > flat_threshold_pct)
+    n_down = sum(1 for s in usable if s.deviation_pct < -flat_threshold_pct)
+    n_flat = len(usable) - n_up - n_down
+
+    up_weight = sum(w[s.symbol] for s in usable if s.deviation_pct > flat_threshold_pct)
+    down_weight = sum(w[s.symbol] for s in usable if s.deviation_pct < -flat_threshold_pct)
+    flat_weight = total_weight - up_weight - down_weight
 
     if average > flat_threshold_pct:
-        direction, breadth = "Upside", n_up / len(deviations) * 100.0
+        direction, breadth = "Upside", up_weight / total_weight * 100.0
     elif average < -flat_threshold_pct:
-        direction, breadth = "Downside", n_down / len(deviations) * 100.0
+        direction, breadth = "Downside", down_weight / total_weight * 100.0
     else:
-        direction, breadth = "Flat", n_flat / len(deviations) * 100.0
+        direction, breadth = "Flat", flat_weight / total_weight * 100.0
 
     return ConstituentBiasSignal(
         direction=direction,
@@ -233,4 +261,5 @@ def compute_bias_signal(
         n_flat=n_flat,
         n_total=len(snapshots),
         n_with_data=len(usable),
+        weighting_label=weighting_label,
     )

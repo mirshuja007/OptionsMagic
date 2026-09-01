@@ -22,9 +22,10 @@ Auction Session participant CSVs the user also supplied on 2026-09-01, so
 these are confirmed-correct real trading symbols (e.g. the ``BAJAJ-AUTO``
 hyphen, ``TMPV`` for Tata Motors Passenger Vehicles), not guesses.
 
-No SENSEX 30 weight table has been supplied yet — see ``app.data.cas``'s
-``compute_bias_signal`` docstring for why the constituent bias signal
-stays equal-weighted until both index weight tables are in hand.
+A matching SENSEX 30 snapshot (same source, same date) was supplied
+alongside this one — see ``SENSEX30_WEIGHTS_PCT`` below. Between the two,
+every one of instruments.py's 23 tracked stocks now has a confirmed real
+weight in both indices.
 """
 from __future__ import annotations
 
@@ -79,4 +80,40 @@ NIFTY50_WEIGHTS_PCT: dict[str, float] = {
     "TATACONSUM": 0.53,
     "MAXHEALTH": 0.51,
     "DRREDDY": 0.51,
+}
+
+# symbol -> SENSEX 30 weight, percent, as of the same 2026-09-01 snapshot.
+# All 30 rows were supplied (SENSEX has exactly 30 constituents); weights
+# sum to 99.96%.
+SENSEX30_WEIGHTS_PCT: dict[str, float] = {
+    "RELIANCE": 11.45,
+    "BHARTIARTL": 7.56,
+    "HDFCBANK": 7.11,
+    "ICICIBANK": 6.68,
+    "SBIN": 6.18,
+    "TCS": 5.54,
+    "BAJFINANCE": 4.24,
+    "LT": 3.55,
+    "HINDUNILVR": 3.03,
+    "INFY": 3.03,
+    "SUNPHARMA": 3.00,
+    "TITAN": 2.89,
+    "KOTAKBANK": 2.73,
+    "MARUTI": 2.63,
+    "M&M": 2.61,
+    "AXISBANK": 2.54,
+    "ADANIPORTS": 2.45,
+    "HCLTECH": 2.37,
+    "ULTRACEMCO": 2.17,
+    "ITC": 2.16,
+    "NTPC": 2.05,
+    "ETERNAL": 2.05,
+    "BAJAJFINSV": 2.04,
+    "BEL": 1.94,
+    "ASIANPAINT": 1.59,
+    "POWERGRID": 1.59,
+    "TATASTEEL": 1.49,
+    "INDIGO": 1.27,
+    "TECHM": 1.04,
+    "TRENT": 0.98,
 }

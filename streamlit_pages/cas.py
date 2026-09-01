@@ -21,10 +21,13 @@ actual 3:15-3:35pm IST window with a working Kite session.
 The "Constituent Overview" table and its Bias Signal (see
 ``app.data.cas.compute_bias_signal``) are deliberately NOT a prediction of
 index direction — there's no statistically validated or backtested model
-behind them, just a transparent, equal-weighted readout of how far the
-tracked stocks are currently trading from their own reference prices. See
-that function's docstring before changing how this is presented; the
-honesty of that framing is the point, not an accident.
+behind them, just a transparent readout of how far the tracked stocks are
+currently trading from their own reference prices, either treating every
+stock equally or weighted by real NIFTY 50 / SENSEX 30 index weight (see
+``app.data.index_weights`` for that data's provenance — a user-supplied
+snapshot, not scraped). See ``compute_bias_signal``'s docstring before
+changing how this is presented; the honesty of that framing is the point,
+not an accident.
 """
 from __future__ import annotations
 
@@ -156,6 +159,7 @@ def _render_constituent_overview(stocks: dict) -> None:
     """
     from app.data.cas import compute_bias_signal, constituent_snapshot
     from app.data.feed import generate_minute_series
+    from app.data.index_weights import NIFTY50_WEIGHTS_PCT, SENSEX30_WEIGHTS_PCT
 
     st.divider()
     st.subheader("Constituent Overview")
@@ -195,19 +199,35 @@ def _render_constituent_overview(stocks: dict) -> None:
         "isn't confirmed to be available via the API yet (see \"Live auction data (diagnostic)\" below)."
     )
 
-    signal = compute_bias_signal(snapshots)
-    if signal is None:
+    unweighted = compute_bias_signal(snapshots)
+    if unweighted is None:
         st.info("No reference prices available across the tracked constituents yet — check back after 3:00pm IST.")
         return
 
     st.markdown("#### Constituent Bias Signal")
     st.caption(
         "An honest, transparent readout of how the tracked constituents are trading relative to their own "
-        "CAS reference prices right now — equal-weighted average deviation and breadth (how many agree with "
-        "that direction). This is **not** a prediction, **not** a probability, and has no statistical or "
-        "backtested validity as a forecast of index movement. It's exactly what the numbers below say, and "
-        "nothing more."
+        "CAS reference prices right now. This is **not** a prediction, **not** a probability, and has no "
+        "statistical or backtested validity as a forecast of index movement. It's exactly what the numbers "
+        "below say, and nothing more."
     )
+
+    basis = st.radio(
+        "Weighting basis",
+        ["Equal-weighted", "NIFTY 50-weighted", "SENSEX 30-weighted"],
+        horizontal=True,
+        help="Equal-weighted treats every tracked stock the same regardless of size. The two index-weighted "
+        "options use real NIFTY 50 / SENSEX 30 free-float weights (a 2026-09-01 snapshot — see "
+        "app.data.index_weights) so a heavyweight like RELIANCE counts for more than a small one — that's "
+        "closer to how the actual index moves, but only for the stocks tracked here, not the full index.",
+    )
+    if basis == "NIFTY 50-weighted":
+        signal = compute_bias_signal(snapshots, weights=NIFTY50_WEIGHTS_PCT, weighting_label=basis)
+    elif basis == "SENSEX 30-weighted":
+        signal = compute_bias_signal(snapshots, weights=SENSEX30_WEIGHTS_PCT, weighting_label=basis)
+    else:
+        signal = unweighted
+
     b1, b2, b3 = st.columns(3)
     b1.metric("Direction", signal.direction)
     b2.metric("Magnitude", signal.magnitude_bucket)
@@ -216,8 +236,10 @@ def _render_constituent_overview(stocks: dict) -> None:
     b4.metric(
         "Breadth",
         f"{signal.breadth_pct:.0f}%",
-        help="Share of constituents-with-data trading in the same direction as the average.",
+        help="Equal-weighted: share of constituents-with-data agreeing with the average direction. "
+        "Index-weighted: share of tracked index *weight* (not stock count) agreeing with it.",
     )
-    b5.metric("Up / Down / Flat", f"{signal.n_up} / {signal.n_down} / {signal.n_flat}")
+    b5.metric("Up / Down / Flat", f"{signal.n_up} / {signal.n_down} / {signal.n_flat}",
+              help="Raw stock counts — unaffected by the weighting basis above.")
     if signal.n_with_data < signal.n_total:
         st.caption(f"Based on {signal.n_with_data} of {signal.n_total} constituents with a reference price so far.")
