@@ -49,6 +49,25 @@ def test_cas_window_status_defaults_to_now_without_error():
     )
 
 
+@pytest.mark.parametrize(
+    "when,expected_substring",
+    [
+        (_at(15, 15), "reference price calculation"),
+        (_at(15, 19), "reference price calculation"),
+        (_at(15, 20), "market + limit orders"),
+        (_at(15, 24), "market + limit orders"),
+        (_at(15, 25), "limit orders only"),
+        (_at(15, 29), "limit orders only"),
+        (_at(15, 30), "order matching"),
+        (_at(15, 34), "order matching"),
+    ],
+)
+def test_cas_window_status_auction_sub_phase_labels(when, expected_substring):
+    status = cas_window_status(when)
+    assert status.phase == "auction"  # sub-phase only refines the label, not the phase
+    assert expected_substring in status.label
+
+
 def _series(bars: list[tuple[int, int, float, int]]) -> list[tuple[datetime, float, int]]:
     """bars: (hour, minute, price, volume) -> (datetime, price, volume)."""
     return [(_at(h, m), p, v) for h, m, p, v in bars]

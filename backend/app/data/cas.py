@@ -39,6 +39,17 @@ AUCTION_END = time(15, 35)
 TRANSITION_END = time(15, 50)
 POST_CLOSE_END = time(16, 0)
 
+# The 3:15-3:35pm auction window (a single "auction" phase above) is itself
+# four NSE-defined sub-windows — see NSE's CAS circular. These only refine
+# the display label; ``phase`` stays "auction" throughout so existing
+# phase-keyed consumers (icon lookups, boundary tests) are unaffected.
+_AUCTION_REFERENCE_CALC_END = time(15, 20)
+_AUCTION_OPEN_ORDER_ENTRY_END = time(15, 25)  # market + limit orders
+_AUCTION_LIMIT_ONLY_ENTRY_END = time(15, 30)  # limit orders only; NSE randomly
+# closes entry sometime in this sub-window's final 2 minutes — the exact
+# cutoff isn't published/predictable, so the label doesn't attempt to narrow
+# it further than NSE's own "last 2 minutes" wording.
+
 REFERENCE_BAND_PCT = 0.03  # +/-3% of the reference price — the auction's allowed price band
 
 
@@ -47,6 +58,20 @@ class CASWindowStatus:
     phase: str  # "pre_open" | "continuous" | "reference_window" | "auction" | "transition" | "post_close" | "closed"
     label: str
     now_ist: datetime
+
+
+def _auction_sub_label(t: time) -> str:
+    """Which of the auction window's four NSE-defined sub-windows ``t``
+    (already known to be within 3:15-3:35pm) falls in. See the module
+    docstring's link to NSE's CAS circular for the source.
+    """
+    if t < _AUCTION_REFERENCE_CALC_END:
+        return "Closing Auction Session (CAS) — reference price calculation (3:15–3:20pm)"
+    if t < _AUCTION_OPEN_ORDER_ENTRY_END:
+        return "Closing Auction Session (CAS) — order entry, market + limit orders (3:20–3:25pm)"
+    if t < _AUCTION_LIMIT_ONLY_ENTRY_END:
+        return "Closing Auction Session (CAS) — order entry, limit orders only (3:25–3:30pm)"
+    return "Closing Auction Session (CAS) — order matching & trade confirmation (3:30–3:35pm)"
 
 
 def cas_window_status(now: datetime | None = None) -> CASWindowStatus:
@@ -64,7 +89,7 @@ def cas_window_status(now: datetime | None = None) -> CASWindowStatus:
     if t < REFERENCE_WINDOW_END:
         return CASWindowStatus("reference_window", "Reference price window (VWAP building, 3:00–3:15pm)", now_ist)
     if t < AUCTION_END:
-        return CASWindowStatus("auction", "Closing Auction Session (CAS) — live", now_ist)
+        return CASWindowStatus("auction", _auction_sub_label(t), now_ist)
     if t < TRANSITION_END:
         return CASWindowStatus("transition", "Transition period", now_ist)
     if t < POST_CLOSE_END:
