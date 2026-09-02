@@ -159,10 +159,11 @@ def _render_constituent_overview(stocks: dict) -> None:
     one table, plus the honest bias-signal readout — see the module
     docstring's note on why that signal is framed the way it is. Gated
     behind a button rather than auto-loading: this fans out to one
-    ``generate_minute_series`` call per stock (23, currently), which on
-    live Kite data means 23 Historical Data API calls — a separately
-    rate-limited, paid add-on (see kite_feed.py's module docstring) — not
-    something to fire on every page load/rerun.
+    ``generate_minute_series`` call per stock (49, currently — the full
+    deduplicated NIFTY 50 + SENSEX 30 union), which on live Kite data means
+    49 Historical Data API calls — a separately rate-limited, paid add-on
+    (see kite_feed.py's module docstring) — not something to fire on every
+    page load/rerun.
     """
     from app.data.cas import compute_bias_signal, constituent_snapshot
     from app.data.feed import generate_minute_series
@@ -226,14 +227,21 @@ def _render_constituent_overview(stocks: dict) -> None:
         help="Equal-weighted treats every tracked stock the same regardless of size. The two index-weighted "
         "options use real NIFTY 50 / SENSEX 30 free-float weights (a 2026-09-01 snapshot — see "
         "app.data.index_weights) so a heavyweight like RELIANCE counts for more than a small one — that's "
-        "closer to how the actual index moves, but only for the stocks tracked here, not the full index.",
+        "closer to how the actual index moves. NIFTY 50-weighted covers all tracked stocks (every one is a "
+        "NIFTY 50 member); SENSEX 30-weighted only covers the subset of tracked stocks that are also SENSEX "
+        "30 members (30 of them, not all 49) — the rest are silently excluded from that view, not zero-weighted.",
     )
     if basis == "NIFTY 50-weighted":
         signal = compute_bias_signal(snapshots, weights=NIFTY50_WEIGHTS_PCT, weighting_label=basis)
     elif basis == "SENSEX 30-weighted":
-        signal = compute_bias_signal(snapshots, weights=SENSEX30_WEIGHTS_PCT, weighting_label=basis)
+        sensex_snapshots = [s for s in snapshots if s.symbol in SENSEX30_WEIGHTS_PCT]
+        signal = compute_bias_signal(sensex_snapshots, weights=SENSEX30_WEIGHTS_PCT, weighting_label=basis)
     else:
         signal = unweighted
+
+    if signal is None:
+        st.info("None of the SENSEX 30-member stocks among the tracked set have a reference price yet.")
+        return
 
     b1, b2, b3 = st.columns(3)
     b1.metric("Direction", signal.direction)

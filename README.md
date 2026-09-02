@@ -269,13 +269,11 @@ CAS-specific API field), the +/-3% auction band, where today's timeline
 currently stands, and a plain-language explainer of the mechanism. Note
 CAS is per-stock, not per-index — there's no NIFTY/BANKNIFTY CAS panel,
 since an index's close is still just the weighted sum of its constituents'
-closes. The stock list is deliberately curated to the heaviest-weight
-constituents of NIFTY 50 *and* SENSEX 30 combined (23 names as of this
-writing — Reliance, HDFC Bank, ICICI Bank, SBI, Bharti Airtel, TCS, Bajaj
-Finance, L&T, HUL, Sun Pharma, Infosys, Titan, Maruti, Kotak Mahindra
-Bank, Axis Bank, HCL Tech, ITC, NTPC, M&M, InterGlobe Aviation, Trent,
-Tech Mahindra, Tata Steel — the names that actually move both indices)
-rather than the full ~200-stock F&O/CAS universe — see
+closes. The stock list covers the full deduplicated NIFTY 50 + SENSEX 30
+union (49 names as of this writing — every SENSEX 30 constituent turned out
+to already be a NIFTY 50 one, so the union is just NIFTY 50's own 49; see
+`app.data.index_weights` for the real weight snapshot both index lists come
+from) rather than the full ~200-stock F&O/CAS universe — see
 `app.data.instruments.STOCKS`.
 
 Below the single-stock view, a **Constituent Overview** table (load-on-demand

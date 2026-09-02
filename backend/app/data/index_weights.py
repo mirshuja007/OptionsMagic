@@ -23,9 +23,14 @@ these are confirmed-correct real trading symbols (e.g. the ``BAJAJ-AUTO``
 hyphen, ``TMPV`` for Tata Motors Passenger Vehicles), not guesses.
 
 A matching SENSEX 30 snapshot (same source, same date) was supplied
-alongside this one — see ``SENSEX30_WEIGHTS_PCT`` below. Between the two,
-every one of instruments.py's 23 tracked stocks now has a confirmed real
-weight in both indices.
+alongside this one — see ``SENSEX30_WEIGHTS_PCT`` below. instruments.py's
+STOCKS now covers the full deduplicated NIFTY 50 + SENSEX 30 union (49
+names — every SENSEX 30 name turned out to already be a NIFTY 50 one, so
+the union equals NIFTY 50's own membership), so every tracked stock has a
+confirmed NIFTY 50 weight; only the 30 that are also SENSEX 30 members
+have a SENSEX weight too (see ``compute_bias_signal``'s SENSEX-weighted
+usage in streamlit_pages/cas.py, which filters to that subset rather than
+assuming full coverage).
 """
 from __future__ import annotations
 

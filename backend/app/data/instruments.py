@@ -249,6 +249,102 @@ STOCKS: dict[str, Instrument] = {
     "TECHM": Instrument("TECHM", "Tech Mahindra", False, 600, 20, 1598.0, 0.25, "NSE",
                          kite_underlying_name="TECHM", kite_spot_tradingsymbol="TECHM",
                          expiry_cadence="monthly", expiry_weekday=1),
+    # Full deduplicated NIFTY 50 + SENSEX 30 membership (49 distinct names —
+    # every SENSEX 30 constituent turned out to already be a NIFTY 50 one
+    # too, so the union is just NIFTY 50's own 49; see
+    # app.data.index_weights.NIFTY50_WEIGHTS_PCT / SENSEX30_WEIGHTS_PCT,
+    # both real user-supplied snapshots). Everything above this comment
+    # was the earlier ~top-20-by-weight curation; these 26 round that out
+    # to full membership per explicit request, so CAS Monitor and the
+    # constituent bias signal cover every index name, not just the
+    # heaviest ones. base_spot below is each stock's real CAS reference
+    # price from the 2026-09-01 NSE Closing Auction Session CSV the user
+    # supplied that day — an actual traded snapshot, not invented — but
+    # lot_size/strike_step are principled estimates (NSE roughly targets a
+    # ₹5-10L contract value per lot; strike step scaled to price the same
+    # way the rest of this file's estimated entries are) with no live
+    # source to confirm them against in this sandbox. Same "verify against
+    # a live Kite pull before trusting a margin/yield number" caveat as
+    # everywhere else here — this expands coverage, it doesn't upgrade
+    # confidence in the guessed contract specs.
+    "ADANIENT": Instrument("ADANIENT", "Adani Enterprises", False, 275, 100, 2852.60, 0.30, "NSE",
+                            kite_underlying_name="ADANIENT", kite_spot_tradingsymbol="ADANIENT",
+                            expiry_cadence="monthly", expiry_weekday=1),
+    "ADANIPORTS": Instrument("ADANIPORTS", "Adani Ports and Special Economic Zone", False, 450, 50, 1642.70, 0.26,
+                              "NSE", kite_underlying_name="ADANIPORTS", kite_spot_tradingsymbol="ADANIPORTS",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "APOLLOHOSP": Instrument("APOLLOHOSP", "Apollo Hospitals Enterprise", False, 85, 100, 8722.0, 0.24, "NSE",
+                              kite_underlying_name="APOLLOHOSP", kite_spot_tradingsymbol="APOLLOHOSP",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "ASIANPAINT": Instrument("ASIANPAINT", "Asian Paints", False, 300, 100, 2563.90, 0.20, "NSE",
+                              kite_underlying_name="ASIANPAINT", kite_spot_tradingsymbol="ASIANPAINT",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "BAJAJ-AUTO": Instrument("BAJAJ-AUTO", "Bajaj Auto", False, 60, 200, 12310.0, 0.24, "NSE",
+                              kite_underlying_name="BAJAJ-AUTO", kite_spot_tradingsymbol="BAJAJ-AUTO",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "BAJAJFINSV": Instrument("BAJAJFINSV", "Bajaj Finserv", False, 375, 50, 1966.10, 0.25, "NSE",
+                              kite_underlying_name="BAJAJFINSV", kite_spot_tradingsymbol="BAJAJFINSV",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "BEL": Instrument("BEL", "Bharat Electronics", False, 1800, 10, 410.25, 0.28, "NSE",
+                       kite_underlying_name="BEL", kite_spot_tradingsymbol="BEL",
+                       expiry_cadence="monthly", expiry_weekday=1),
+    "CIPLA": Instrument("CIPLA", "Cipla", False, 550, 50, 1414.90, 0.22, "NSE",
+                         kite_underlying_name="CIPLA", kite_spot_tradingsymbol="CIPLA",
+                         expiry_cadence="monthly", expiry_weekday=1),
+    "COALINDIA": Instrument("COALINDIA", "Coal India", False, 1900, 10, 401.65, 0.25, "NSE",
+                             kite_underlying_name="COALINDIA", kite_spot_tradingsymbol="COALINDIA",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "DRREDDY": Instrument("DRREDDY", "Dr. Reddy's Laboratories", False, 650, 50, 1171.30, 0.23, "NSE",
+                           kite_underlying_name="DRREDDY", kite_spot_tradingsymbol="DRREDDY",
+                           expiry_cadence="monthly", expiry_weekday=1),
+    "EICHERMOT": Instrument("EICHERMOT", "Eicher Motors", False, 95, 100, 7926.0, 0.24, "NSE",
+                             kite_underlying_name="EICHERMOT", kite_spot_tradingsymbol="EICHERMOT",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "ETERNAL": Instrument("ETERNAL", "Eternal", False, 2300, 10, 327.25, 0.35, "NSE",
+                           kite_underlying_name="ETERNAL", kite_spot_tradingsymbol="ETERNAL",
+                           expiry_cadence="monthly", expiry_weekday=1),
+    "GRASIM": Instrument("GRASIM", "Grasim Industries", False, 225, 100, 3297.70, 0.22, "NSE",
+                          kite_underlying_name="GRASIM", kite_spot_tradingsymbol="GRASIM",
+                          expiry_cadence="monthly", expiry_weekday=1),
+    "HDFCLIFE": Instrument("HDFCLIFE", "HDFC Life Insurance", False, 1400, 20, 539.80, 0.20, "NSE",
+                            kite_underlying_name="HDFCLIFE", kite_spot_tradingsymbol="HDFCLIFE",
+                            expiry_cadence="monthly", expiry_weekday=1),
+    "HINDALCO": Instrument("HINDALCO", "Hindalco Industries", False, 750, 50, 1014.20, 0.28, "NSE",
+                            kite_underlying_name="HINDALCO", kite_spot_tradingsymbol="HINDALCO",
+                            expiry_cadence="monthly", expiry_weekday=1),
+    "JIOFIN": Instrument("JIOFIN", "Jio Financial Services", False, 3200, 5, 235.75, 0.30, "NSE",
+                          kite_underlying_name="JIOFIN", kite_spot_tradingsymbol="JIOFIN",
+                          expiry_cadence="monthly", expiry_weekday=1),
+    "JSWSTEEL": Instrument("JSWSTEEL", "JSW Steel", False, 550, 50, 1309.10, 0.27, "NSE",
+                            kite_underlying_name="JSWSTEEL", kite_spot_tradingsymbol="JSWSTEEL",
+                            expiry_cadence="monthly", expiry_weekday=1),
+    "MAXHEALTH": Instrument("MAXHEALTH", "Max Healthcare Institute", False, 750, 50, 1006.50, 0.24, "NSE",
+                             kite_underlying_name="MAXHEALTH", kite_spot_tradingsymbol="MAXHEALTH",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "ONGC": Instrument("ONGC", "Oil & Natural Gas Corporation", False, 3200, 5, 236.14, 0.24, "NSE",
+                        kite_underlying_name="ONGC", kite_spot_tradingsymbol="ONGC",
+                        expiry_cadence="monthly", expiry_weekday=1),
+    "POWERGRID": Instrument("POWERGRID", "Power Grid Corporation of India", False, 2900, 10, 263.05, 0.18, "NSE",
+                             kite_underlying_name="POWERGRID", kite_spot_tradingsymbol="POWERGRID",
+                             expiry_cadence="monthly", expiry_weekday=1),
+    "SBILIFE": Instrument("SBILIFE", "SBI Life Insurance", False, 425, 50, 1741.40, 0.20, "NSE",
+                           kite_underlying_name="SBILIFE", kite_spot_tradingsymbol="SBILIFE",
+                           expiry_cadence="monthly", expiry_weekday=1),
+    "SHRIRAMFIN": Instrument("SHRIRAMFIN", "Shriram Finance", False, 700, 50, 1054.10, 0.26, "NSE",
+                              kite_underlying_name="SHRIRAMFIN", kite_spot_tradingsymbol="SHRIRAMFIN",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "TATACONSUM": Instrument("TATACONSUM", "Tata Consumer Products", False, 750, 50, 1027.10, 0.20, "NSE",
+                              kite_underlying_name="TATACONSUM", kite_spot_tradingsymbol="TATACONSUM",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "TMPV": Instrument("TMPV", "Tata Motors Passenger Vehicles", False, 2400, 10, 309.80, 0.28, "NSE",
+                        kite_underlying_name="TMPV", kite_spot_tradingsymbol="TMPV",
+                        expiry_cadence="monthly", expiry_weekday=1),
+    "ULTRACEMCO": Instrument("ULTRACEMCO", "UltraTech Cement", False, 65, 200, 11411.0, 0.21, "NSE",
+                              kite_underlying_name="ULTRACEMCO", kite_spot_tradingsymbol="ULTRACEMCO",
+                              expiry_cadence="monthly", expiry_weekday=1),
+    "WIPRO": Instrument("WIPRO", "Wipro", False, 4200, 5, 180.90, 0.22, "NSE",
+                         kite_underlying_name="WIPRO", kite_spot_tradingsymbol="WIPRO",
+                         expiry_cadence="monthly", expiry_weekday=1),
 }
 
 # MCX commodity options — options on futures contracts, settled per MCX's
