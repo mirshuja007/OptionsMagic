@@ -363,41 +363,33 @@ per-user access control on the free tier). Two things follow from that:
 1. **The daily token refresh doesn't happen on its own.** Kite access
    tokens expire every day (~6 AM IST). Research Mode has a "🔑 Login with
    Kite" panel (expander at the top of the page) that does this refresh
-   in-app, without leaving the browser tab, in either of two modes (a
-   "Login method" toggle inside the panel):
-   - **Paste token** (default, recommended on Cloud): click a Kite login
-     link, log in yourself in your own browser, then paste back the
-     resulting redirect URL/`request_token`. Only that short-lived,
-     single-use code ever reaches the app — never your password. The
-     token exchange itself calls Kite Connect's official, documented API
-     endpoint, not the undocumented web-login endpoints, so it isn't
-     subject to the IP-blocking issue below.
-   - **Auto login**: enter your Zerodha User ID, password, and TOTP code
-     (or set `KITE_TOTP_SECRET` in Secrets to auto-generate it) and it
-     logs in for you, no browser round trip. Your password is only ever
-     held in that form's own input for the duration of one click — it is
-     **never** written to Secrets, `session_state`, disk, or logs. It
-     reuses `backend/app/data/kite_auth.py`'s automated-login helper,
-     which submits credentials to undocumented Zerodha endpoints (the
-     same approach `backend/scripts/kite_login.py --auto` uses locally) —
-     and **has been observed to fail with a 403 from Streamlit Cloud
-     specifically**, most likely Zerodha blocking the request based on
-     Cloud's datacenter IP rather than anything about the credentials.
-     There's no fix for that from this side; use Paste token instead if
-     you hit it. `KITE_TOTP_SECRET` is optional specifically so you can
-     skip storing your TOTP seed in Secrets and just type the 6-digit
-     code each time instead.
+   in-app, without leaving the browser tab: click a Kite login link, log
+   in yourself in your own browser, then paste back the resulting
+   redirect URL/`request_token`. Only that short-lived, single-use code
+   ever reaches the app — never your password. The token exchange itself
+   calls Kite Connect's official, documented API endpoint.
 
-   Either mode updates *this running app process's* in-memory session and
-   caches the access token to a small local file, dated to today (IST) —
-   the next time the panel loads with no active session but that same-day
-   cache still present (a script rerun, or a fresh browser tab reconnecting
-   to the same running app), a "Use cached session" button appears so you
-   don't have to repeat the login. Neither the in-memory session nor the
-   cache can rewrite Streamlit Cloud's platform Secrets, and Streamlit
-   Cloud doesn't promise the local filesystem survives a container
-   restart — so a Cloud reboot or redeploy may still need a fresh login
-   through the panel regardless.
+   (An earlier version of this panel also offered an "Auto login" mode —
+   User ID/password/TOTP submitted directly, no browser round trip. It
+   was removed: that mode called Zerodha's *undocumented* login
+   endpoints, which consistently 403'd when the request came from
+   Streamlit Cloud's datacenter IP, so on this app's actual deployment it
+   never worked — only added a dead-end option. The same automated-login
+   approach still exists and still works for local, non-Cloud use via
+   `backend/scripts/kite_login.py --auto`, run from your own machine.)
+
+   A successful login updates *this running app process's* in-memory
+   session and caches the access token to a small local file, dated to
+   today (IST) — the next time the panel loads with no active session but
+   that same-day cache still present (a script rerun, or a fresh browser
+   tab reconnecting to the same running app), a "Use cached session"
+   button appears so you don't have to repeat the login. Neither the
+   in-memory session nor the cache can rewrite Streamlit Cloud's platform
+   Secrets, and Streamlit Cloud doesn't promise the local filesystem
+   survives a container restart (redeploys and idle sleep/wake cycles
+   both reset it) — so a Cloud reboot or redeploy may still need a fresh
+   login through the panel regardless, and a new trading day always does
+   too, since Kite tokens expire daily no matter what.
 
    You can also skip the in-app panel entirely: run `kite_login.py`
    locally each trading morning and paste the fresh `KITE_ACCESS_TOKEN`

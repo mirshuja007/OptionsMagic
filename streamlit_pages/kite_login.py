@@ -4,60 +4,47 @@ Kite access tokens expire daily (~6 AM IST), and on Streamlit Cloud the
 usual fix — rerunning ``backend/scripts/kite_login.py`` locally and pasting
 the new token into the app's Secrets — means a manual round trip outside
 the app every trading day. This panel does that same exchange from inside
-Research Mode instead, two ways:
+Research Mode instead: you click a Kite login link, log in in your own
+browser, and paste back the redirect URL/request_token Kite hands you.
+Only ``request_token`` — a short-lived, single-use code — ever reaches
+this app; your password never does. The actual token exchange
+(``KiteConnect.generate_session``) calls Kite Connect's official,
+documented API endpoint.
 
-- **Paste token** (default, recommended): you click a Kite login link,
-  log in in your own browser, and paste back the redirect URL/request_token
-  Kite hands you. Only ``request_token`` — a short-lived, single-use code —
-  ever reaches this app; your password never does. The actual token
-  exchange (``KiteConnect.generate_session``) calls Kite Connect's
-  official, documented API endpoint, not the undocumented web-login
-  endpoints — see the "Known limitation" note below for why that
-  distinction matters on Streamlit Cloud specifically.
-- **Auto login** (User ID/Password/TOTP): does the whole thing without a
-  browser round trip, via ``app.data.kite_auth.automated_request_token``.
-  Convenient, but calls Zerodha's *undocumented* login endpoints, which
-  have been observed to reject requests from Streamlit Cloud outright —
-  see below. Prefer "Paste token" on Cloud; this mode is more likely to
-  work when running the app locally.
+An earlier version of this panel also offered an "Auto login" mode
+(User ID/Password/TOTP submitted directly, no browser round trip, via
+``app.data.kite_auth.automated_request_token``) — removed because it calls
+Zerodha's *undocumented* login endpoints, which were consistently observed
+to reject requests from Streamlit Cloud with a 403 regardless of
+credentials: it never actually worked on this app's real deployment, only
+added a dead-end option. That automated-login code path still exists and
+still works for local, non-Cloud use in ``backend/scripts/kite_login.py
+--auto`` (run from your own machine, not blocked by any Cloud IP) — this
+in-app panel just no longer offers it, since Streamlit Cloud is the
+context it actually runs in.
 
-A successful login (either mode) is cached to a small local file, dated to
-today (IST) — the next time this page loads with no active session but
-that same-day cache still present (e.g. after a script rerun or a fresh
-browser tab reconnecting to the same running app), a "Use cached session"
-button appears so you don't have to repeat the login. This is purely a
+A successful login is cached to a small local file, dated to today (IST)
+— the next time this page loads with no active session but that same-day
+cache still present (e.g. after a script rerun or a fresh browser tab
+reconnecting to the same running app), a "Use cached session" button
+appears so you don't have to repeat the login. This is purely a
 convenience shortcut on top of the in-memory session below, not a
 persistence guarantee: Streamlit Cloud doesn't promise the local
-filesystem survives a container restart, so a Cloud reboot may still need
-a fresh login regardless.
+filesystem survives a container restart (redeploys and idle sleep/wake
+cycles both reset it), so a Cloud reboot may still need a fresh login
+regardless — and Kite tokens expire once every 24 hours no matter what,
+so a new trading day always needs a fresh login too.
 
 Security notes:
 
-- In Auto login mode, your Zerodha password is only ever held in that
-  form's own input value for the duration of one click — it is never
-  written to Streamlit Secrets, session_state that survives a rerun, disk,
-  or logs. Every login submits it fresh. Paste token mode never asks for
-  it at all.
-- ``KITE_TOTP_SECRET`` (your TOTP seed, not a 6-digit code) is optional in
-  Secrets, used only by Auto login. If set, the current code is generated
-  automatically each login; if not, you enter the 6-digit code by hand.
 - A successful login updates *this running app process's* in-memory
   environment (via ``os.environ`` + ``reset_kite_client()``) and the
   same-day disk cache described above — neither can rewrite Streamlit
   Cloud's platform Secrets.
-- The disk cache holds only the access_token (not your password, TOTP
-  secret, or API secret), scoped to today's date and the current API key —
-  see ``_load_cached_session``. It lives at ``.streamlit/kite_session_cache.json``,
-  which is gitignored.
-
-Known limitation (Auto login only): on Streamlit Community Cloud, Auto
-login has been observed to fail with "403 Forbidden" on Zerodha's
-``/api/twofa`` endpoint even with correct credentials and browser-like
-request headers — most likely Zerodha rejecting the request based on
-Streamlit Cloud's datacenter IP address, not anything about the request
-itself. There's no header or retry fix for that from this side. Paste
-token mode sidesteps it entirely, since the browser login happens on
-*your* device, not Streamlit Cloud's.
+- The disk cache holds only the access_token (not your password or API
+  secret), scoped to today's date and the current API key — see
+  ``_load_cached_session``. It lives at
+  ``.streamlit/kite_session_cache.json``, which is gitignored.
 """
 from __future__ import annotations
 
@@ -66,7 +53,6 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
-import requests
 import streamlit as st
 
 from streamlit_pages.common import get_secret
@@ -138,18 +124,7 @@ def render_kite_login_panel() -> None:
             if st.button("Use cached session"):
                 _finish_login(api_key, cached_token)
 
-        mode = st.radio(
-            "Login method",
-            ["Paste token", "Auto login"],
-            horizontal=True,
-            help="Paste token: log in yourself in a browser, paste back the result — works from Streamlit "
-            "Cloud. Auto login: submits User ID/Password/TOTP for you, but Zerodha has been observed to "
-            "block this from Streamlit Cloud's IP (see the panel below once selected).",
-        )
-        if mode == "Paste token":
-            _render_paste_token(api_key, api_secret)
-        else:
-            _render_auto_login(api_key, api_secret)
+        _render_paste_token(api_key, api_secret)
 
 
 def _render_paste_token(api_key: str, api_secret: str) -> None:
@@ -190,69 +165,5 @@ def _render_paste_token(api_key: str, api_secret: str) -> None:
         except Exception as exc:  # noqa: BLE001 — surface any other failure with context
             st.error(f"Token exchange failed: {exc}")
             return
-
-    _finish_login(api_key, session_data["access_token"])
-
-
-def _render_auto_login(api_key: str, api_secret: str) -> None:
-    st.caption(
-        "Submits your Zerodha login for you — convenient, but see the module docstring's \"Known "
-        "limitation\": this has been observed to 403 from Streamlit Cloud regardless of credentials. "
-        "Prefer \"Paste token\" above if you hit that."
-    )
-    totp_secret = get_secret("KITE_TOTP_SECRET")
-
-    with st.form("kite_auto_login_form", clear_on_submit=True):
-        user_id = st.text_input("Zerodha User ID")
-        password = st.text_input("Zerodha Password", type="password")
-        if totp_secret:
-            st.caption("TOTP code will be generated automatically from KITE_TOTP_SECRET in Secrets.")
-            totp_code = None
-        else:
-            totp_code = st.text_input("TOTP code (6 digits, from your authenticator app)")
-        submitted = st.form_submit_button("Log in")
-
-    if not submitted:
-        return
-
-    if not user_id or not password or (not totp_secret and not totp_code):
-        st.error("Fill in all fields before submitting.")
-        return
-
-    with st.spinner("Logging in to Kite..."):
-        try:
-            from kiteconnect import KiteConnect
-            from kiteconnect.exceptions import KiteException
-
-            from app.data.kite_auth import automated_request_token, request_token_with_totp_code
-
-            if totp_secret:
-                request_token = automated_request_token(api_key, user_id, password, totp_secret)
-            else:
-                request_token = request_token_with_totp_code(api_key, user_id, password, totp_code)
-
-            kite = KiteConnect(api_key=api_key)
-            session_data = kite.generate_session(request_token, api_secret=api_secret)
-        except KiteException as exc:
-            st.error(f"Token exchange failed: {exc}")
-            return
-        except requests.exceptions.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status == 403:
-                st.error(
-                    "Login failed: 403 Forbidden from Zerodha. This usually means Zerodha is blocking "
-                    "the request based on Streamlit Cloud's IP address, not your credentials — try "
-                    "\"Paste token\" above instead."
-                )
-            else:
-                st.error(f"Login failed: {exc}")
-            return
-        except Exception as exc:  # noqa: BLE001 — surface any other login/HTTP failure with context
-            st.error(f"Login failed: {exc}")
-            return
-        finally:
-            # Best-effort scrub — Python can't guarantee immediate GC/zeroing,
-            # but there's no reason to keep a reference around longer than this.
-            password = None  # noqa: F841
 
     _finish_login(api_key, session_data["access_token"])
