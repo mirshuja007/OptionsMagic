@@ -16,7 +16,15 @@ on Kite exposing any CAS-specific fields. Whether Kite Connect's API *also*
 exposes the live in-auction indicative-close/imbalance-quantity fields that
 Kite Web shows is unconfirmed; the "Live auction data (diagnostic)" section
 below is how that gets checked, live, the next time this runs during the
-actual 3:15-3:35pm IST window with a working Kite session.
+actual 3:15-3:35pm IST window with a working Kite session — for a single
+stock, or (new) all tracked stocks at once for a definitive yes/no across
+the whole universe. Deliberately still a diagnostic, not a data column:
+even confirming Kite exposes *something* CAS-specific wouldn't be enough to
+add a real "equilibrium price" column, since replicating NSE's own
+equilibrium-price algorithm (maximum executable volume across the full
+order book) needs full order-book depth, and Kite's quote API caps
+``depth`` at 5 bid/ask levels — not something to approximate and label as
+real.
 
 The "Constituent Overview" table and its Bias Signal (see
 ``app.data.cas.compute_bias_signal``) are deliberately NOT a prediction of
@@ -50,6 +58,16 @@ _PHASE_ICON = {
     "transition": "🟠",
     "post_close": "🟠",
     "closed": "⚪",
+}
+
+# Every field a plain (non-CAS) Kite quote response is known to carry. Any
+# field outside this set, seen live during the 3:15-3:35pm auction window,
+# is a candidate CAS-specific field (reference price / indicative close /
+# imbalance quantity) worth investigating — see _render_live_auction_diagnostic.
+_KNOWN_QUOTE_FIELDS = {
+    "instrument_token", "last_price", "last_quantity", "last_trade_time", "ohlc", "volume", "buy_quantity",
+    "sell_quantity", "average_price", "oi", "depth", "oi_day_high", "oi_day_low", "net_change",
+    "lower_circuit_limit", "upper_circuit_limit", "timestamp",
 }
 
 
@@ -123,35 +141,7 @@ def render() -> None:
     if get_active_provider() != "kite":
         return
 
-    with st.expander("Live auction data (diagnostic)"):
-        st.caption(
-            "Attempts a raw Kite Connect quote for this stock's spot instrument, to check whether the API "
-            "exposes the same reference price / indicative close / imbalance quantity fields Kite Web shows "
-            "during the auction window — this is the actual verification step, only meaningful between "
-            "3:15-3:35pm IST on a trading day."
-        )
-        if st.button("Fetch live quote"):
-            from app.data.kite_client import KiteAuthError
-            from app.data.kite_feed import KiteFeedError, raw_underlying_quote
-
-            try:
-                quote = raw_underlying_quote(symbol)
-            except (KiteFeedError, KiteAuthError) as exc:
-                st.error(f"Couldn't fetch a live quote: {exc}")
-            else:
-                st.json(quote)
-                known_fields = {"instrument_token", "last_price", "last_quantity", "last_trade_time", "ohlc",
-                                 "volume", "buy_quantity", "sell_quantity", "average_price", "oi", "depth",
-                                 "oi_day_high", "oi_day_low", "net_change", "lower_circuit_limit",
-                                 "upper_circuit_limit", "timestamp"}
-                extra_fields = set(quote.keys()) - known_fields
-                if extra_fields:
-                    st.success(f"Unrecognized field(s) present — worth checking if these are CAS data: {sorted(extra_fields)}")
-                else:
-                    st.warning(
-                        "Only the usual quote fields are present — no CAS-specific field (reference price / "
-                        "indicative close / imbalance quantity) found in this response."
-                    )
+    _render_live_auction_diagnostic(STOCKS, symbol)
 
 
 def _render_constituent_overview(stocks: dict) -> None:
@@ -341,3 +331,83 @@ def _render_cas_history(stocks: dict) -> None:
             f"Only {summary.n_sessions} session(s) logged — nowhere near enough for a reliable distribution "
             "yet. Treat every number above as \"what's happened so far,\" not a forecast."
         )
+
+
+def _render_live_auction_diagnostic(stocks: dict, symbol: str) -> None:
+    """Whether Kite Connect's *API* exposes the same CAS-specific fields
+    (reference price / indicative close / imbalance quantity) that Kite
+    Web's own UI shows during the 3:15-3:35pm auction — genuinely
+    unconfirmed (see the module docstring), and NOT something to guess at:
+    there's no "equilibrium price" column in the Constituent Overview table
+    above because computing a real one needs full order-book depth across
+    the whole +/-3% band, which Kite's quote API doesn't provide even where
+    it does expose *some* live auction data (its ``depth`` field is capped
+    at 5 bid/ask levels) — replicating NSE's own equilibrium-price algorithm
+    isn't possible from this data even with full field access confirmed.
+    So this stays a diagnostic, not a data column: it tells you whether
+    Kite exposes anything CAS-specific at all, not what the number is.
+    """
+    with st.expander("Live auction data (diagnostic)"):
+        st.caption(
+            "Attempts a raw Kite Connect quote for a stock's spot instrument, to check whether the API "
+            "exposes any field beyond the usual quote shape — only meaningful between 3:15-3:35pm IST on a "
+            "trading day. Even if it does, replicating NSE's own equilibrium-price calculation (maximum "
+            "executable volume across the full order book) isn't possible from a 5-level depth snapshot, so "
+            "this can at most confirm *whether* Kite exposes CAS data, not compute an equilibrium price "
+            "column from it."
+        )
+        if st.button("Fetch live quote for the selected stock"):
+            from app.data.kite_client import KiteAuthError
+            from app.data.kite_feed import KiteFeedError, raw_underlying_quote
+
+            try:
+                quote = raw_underlying_quote(symbol)
+            except (KiteFeedError, KiteAuthError) as exc:
+                st.error(f"Couldn't fetch a live quote: {exc}")
+            else:
+                st.json(quote)
+                extra_fields = set(quote.keys()) - _KNOWN_QUOTE_FIELDS
+                if extra_fields:
+                    st.success(f"Unrecognized field(s) present — worth checking if these are CAS data: {sorted(extra_fields)}")
+                else:
+                    st.warning(
+                        "Only the usual quote fields are present — no CAS-specific field (reference price / "
+                        "indicative close / imbalance quantity) found in this response."
+                    )
+
+        st.divider()
+        st.caption(
+            f"One stock at a time only tells you about that stock — Kite could expose CAS fields for some "
+            f"tracked stocks and not others. This checks all {len(stocks)} at once (that many quote calls, "
+            "rate-limited on the live plan) for a definitive answer across the whole tracked universe."
+        )
+        if st.button(f"Check all {len(stocks)} constituents for CAS fields"):
+            from app.data.kite_client import KiteAuthError
+            from app.data.kite_feed import KiteFeedError, raw_underlying_quote
+
+            found: dict[str, list[str]] = {}
+            errors: list[str] = []
+            with st.spinner(f"Checking {len(stocks)} constituents…"):
+                for sym in sorted(stocks):
+                    try:
+                        quote = raw_underlying_quote(sym)
+                    except (KiteFeedError, KiteAuthError) as exc:
+                        errors.append(f"{sym}: {exc}")
+                        continue
+                    extra_fields = sorted(set(quote.keys()) - _KNOWN_QUOTE_FIELDS)
+                    if extra_fields:
+                        found[sym] = extra_fields
+
+            if found:
+                st.success(f"Unrecognized field(s) found in {len(found)} of {len(stocks)} symbol(s):")
+                st.json(found)
+            else:
+                st.warning(
+                    f"No unrecognized fields found across all {len(stocks) - len(errors)} symbols that "
+                    "returned a quote — Kite's API doesn't appear to expose CAS-specific fields, at least "
+                    "not at this moment."
+                )
+            if errors:
+                with st.expander(f"{len(errors)} symbol(s) failed to fetch"):
+                    for msg in errors:
+                        st.text(msg)
