@@ -26,11 +26,20 @@ reading anything CAS-specific — see ``app.data.kite_feed.futures_snapshot``
 """
 from __future__ import annotations
 
+from datetime import datetime, time as dtime
+
+import plotly.graph_objects as go
 import streamlit as st
 
-from streamlit_pages.common import GREEN, RED, fmt, safe_call
+from streamlit_pages.common import GREEN, RED, dark_layout, fmt, safe_call
 
 POLL_SECONDS = 15
+
+# SEBI's Closing Auction Session reference window on NSE/BSE — highlighted
+# on the chart since it's the specific window the old CAS Monitor's signal
+# was blind to (see the module docstring above).
+CAS_WINDOW_START = dtime(15, 0)
+CAS_WINDOW_END = dtime(15, 15)
 
 
 def render() -> None:
@@ -96,3 +105,48 @@ def _futures_panel(symbol: str, label: str) -> None:
     st.caption(
         "The swing a reference-price-relative signal could miss entirely — this shows both extremes directly."
     )
+
+    _futures_chart(symbol, label)
+
+
+def _futures_chart(symbol: str, label: str) -> None:
+    from app.data.feed import futures_minute_series
+
+    series, err = safe_call(futures_minute_series, symbol)
+    if err or not series:
+        st.info(f"Intraday chart unavailable: {err or 'no data yet'}")
+        return
+
+    times = [t for t, _, _ in series]
+    prices = [p for _, p, _ in series]
+    day_open, day_close = prices[0], prices[-1]
+    line_color = GREEN if day_close >= day_open else RED
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=times, y=prices, mode="lines", name=label, line=dict(color=line_color, width=2)))
+
+    session_date = times[0].date()
+    cas_start = _combine(session_date, CAS_WINDOW_START)
+    cas_end = _combine(session_date, CAS_WINDOW_END)
+    if cas_start <= times[-1]:
+        fig.add_vrect(
+            x0=cas_start,
+            x1=min(cas_end, times[-1]),
+            fillcolor="rgba(245, 158, 11, 0.15)",
+            line_width=0,
+            annotation_text="CAS window (3:00–3:15pm)",
+            annotation_position="top left",
+            annotation=dict(font_size=10),
+        )
+
+    dark_layout(fig, title=f"{label} — Intraday Price", height=320, xaxis_title="Time", yaxis_title="Price")
+    st.plotly_chart(fig, use_container_width=True, key=f"futures_chart_{symbol}")
+    st.caption(
+        f"Live-updating every {POLL_SECONDS}s as new minute bars complete — Streamlit Cloud has no server-push "
+        "mechanism, so this is high-frequency polling, not a raw websocket tick stream. The amber band marks "
+        "the 3:00–3:15pm CAS reference window."
+    )
+
+
+def _combine(session_date, t: dtime) -> datetime:
+    return datetime.combine(session_date, t)

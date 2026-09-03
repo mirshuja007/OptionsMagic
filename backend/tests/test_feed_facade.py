@@ -67,3 +67,31 @@ def test_futures_snapshot_kite_provider_surfaces_auth_error(monkeypatch):
     with pytest.raises(KiteAuthError):
         feed.futures_snapshot("NIFTY")
     reset_kite_client()
+
+
+def test_futures_minute_series_mock_provider_shape(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    series = feed.futures_minute_series("NIFTY", minutes=10)
+    assert len(series) == 10
+    assert all(p > 0 for _, p, _ in series)
+
+
+def test_futures_minute_series_differs_from_spot_minute_series(monkeypatch):
+    """Regression: futures_minute_series must be seeded separately from
+    generate_minute_series — sharing a seed would make the Futures Monitor
+    chart a pixel-identical copy of the (different-instrument) spot series.
+    """
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    spot_series = feed.generate_minute_series("NIFTY", minutes=10)
+    futures_series = feed.futures_minute_series("NIFTY", minutes=10)
+    assert [p for _, p, _ in spot_series] != [p for _, p, _ in futures_series]
+
+
+def test_futures_minute_series_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.futures_minute_series("NIFTY")
+    reset_kite_client()

@@ -22,6 +22,7 @@ __all__ = [
     "OptionChain",
     "RISK_FREE_RATE",
     "available_expiries",
+    "futures_minute_series",
     "futures_snapshot",
     "generate_minute_series",
     "generate_option_chain",
@@ -246,20 +247,14 @@ def _make_leg_quote(
     )
 
 
-def generate_minute_series(
-    symbol: str,
-    session_date: date | None = None,
-    minutes: int = 375,  # NSE cash session length, 09:15-15:30
-    seed: int | None = None,
+def _simulate_minute_path(
+    instrument: Instrument, session_date: date, minutes: int, seed_key: str, seed: int | None
 ) -> list[tuple[datetime, float, int]]:
-    """Simulated minute-by-minute (underlying spot, volume) path for a
-    trading session, used by the backtest replay engine and the Research
-    Mode intraday/VWAP chart. GBM with intraday vol; volume follows a
-    U-shaped intraday profile.
+    """Shared GBM minute-path simulation behind ``generate_minute_series``
+    and ``futures_minute_series`` — same construction, different seed key
+    so the two lines aren't a pixel-identical copy of each other.
     """
-    instrument = get_instrument(symbol)
-    rng = np.random.default_rng(_seed_for(symbol + "-minute", seed))
-    session_date = session_date or date.today()
+    rng = np.random.default_rng(_seed_for(seed_key, seed))
     start = datetime.combine(session_date, instrument.session_start)
 
     dt = 1.0 / (252 * 375)  # one minute as a fraction of a trading year
@@ -273,16 +268,51 @@ def generate_minute_series(
     return [(start + timedelta(minutes=i), p, v) for i, (p, v) in enumerate(zip(prices, volumes))]
 
 
+def generate_minute_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,  # NSE cash session length, 09:15-15:30
+    seed: int | None = None,
+) -> list[tuple[datetime, float, int]]:
+    """Simulated minute-by-minute (underlying spot, volume) path for a
+    trading session, used by the backtest replay engine and the Research
+    Mode intraday/VWAP chart. GBM with intraday vol; volume follows a
+    U-shaped intraday profile.
+    """
+    instrument = get_instrument(symbol)
+    session_date = session_date or date.today()
+    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-minute", seed)
+
+
+def futures_minute_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+    seed: int | None = None,
+) -> list[tuple[datetime, float, int]]:
+    """Simulated minute-by-minute (futures price, volume) path — mock-mode
+    counterpart to ``kite_feed.futures_minute_series`` (which tracks the
+    actual futures contract, not the index), and the Futures Monitor
+    chart's data source when running unauthenticated. Seeded separately
+    from ``generate_minute_series`` so it isn't an identical copy of the
+    spot line.
+    """
+    instrument = get_instrument(symbol)
+    session_date = session_date or date.today()
+    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-futures-minute", seed)
+
+
 def futures_snapshot(symbol: str) -> dict:
     """Simulated current-month index-futures reading — same shape as
     kite_feed.futures_snapshot's real one (last price, previous close,
     day's move, day's high/low range), derived from today's simulated
-    minute path rather than a live futures quote. ``prev_close`` uses
+    futures minute path (``futures_minute_series``) so the header figures
+    stay consistent with the Futures Monitor chart. ``prev_close`` uses
     ``instrument.base_spot``, the same simulated-previous-close convention
     ``generate_option_chain`` already uses.
     """
     instrument = get_instrument(symbol)
-    series = generate_minute_series(symbol)
+    series = futures_minute_series(symbol)
     prices = [p for _, p, _ in series]
     last_price = prices[-1]
     prev_close = instrument.base_spot

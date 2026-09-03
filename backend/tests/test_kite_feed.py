@@ -210,7 +210,12 @@ class FakeKite:
         return {k: self._quote_map[k] for k in key_list if k in self._quote_map}
 
     def historical_data(self, instrument_token, from_date, to_date, interval):
-        self.last_historical_call = {"from_date": from_date, "to_date": to_date, "interval": interval}
+        self.last_historical_call = {
+            "instrument_token": instrument_token,
+            "from_date": from_date,
+            "to_date": to_date,
+            "interval": interval,
+        }
         return self._historical_candles
 
 
@@ -553,8 +558,14 @@ def test_generate_option_chain_for_commodity_uses_futures_underlying(monkeypatch
 # ---------------------------------------------------------------------------
 
 
-def _index_fut_row(name: str, expiry: date, tradingsymbol: str) -> dict:
-    return {"tradingsymbol": tradingsymbol, "name": name, "expiry": expiry, "instrument_type": "FUT"}
+def _index_fut_row(name: str, expiry: date, tradingsymbol: str, instrument_token: int = 555) -> dict:
+    return {
+        "tradingsymbol": tradingsymbol,
+        "name": name,
+        "expiry": expiry,
+        "instrument_type": "FUT",
+        "instrument_token": instrument_token,
+    }
 
 
 def test_futures_snapshot_computes_change_and_range(monkeypatch):
@@ -624,3 +635,44 @@ def test_futures_snapshot_raises_when_no_futures_contracts_listed(monkeypatch):
 
     with pytest.raises(KiteFeedError):
         kite_feed.futures_snapshot("NIFTY")
+
+
+def test_futures_minute_series_end_to_end(monkeypatch):
+    # A fixed past date, not date.today() — same reasoning as
+    # test_generate_minute_series_end_to_end: keeps the outcome independent
+    # of what time of day the suite happens to run.
+    session_date = date(2026, 8, 17)
+    near_expiry = session_date + timedelta(days=10)
+    fut_rows = [_index_fut_row("NIFTY", near_expiry, "NIFTY26SEPFUT", instrument_token=777)]
+    candles = [
+        {
+            "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i),
+            "close": 24800.0 + i,
+            "volume": 1000 + i,
+        }
+        for i in range(5)
+    ]
+    fake = FakeKite(
+        nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles, extra_dumps={"NFO": fut_rows}
+    )
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    series = kite_feed.futures_minute_series("NIFTY", session_date=session_date, minutes=5)
+
+    assert len(series) == 5
+    assert series[0][1] == 24800.0
+    assert series[0][2] == 1000
+    assert series[0][0].tzinfo is None
+    # Must fetch candles for the resolved futures contract's own
+    # instrument_token, not the underlying index's.
+    assert fake.last_historical_call["instrument_token"] == 777
+
+
+def test_futures_minute_series_raises_when_no_futures_contracts_listed(monkeypatch):
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, extra_dumps={"NFO": []})
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.futures_minute_series("NIFTY", session_date=date(2026, 8, 17))

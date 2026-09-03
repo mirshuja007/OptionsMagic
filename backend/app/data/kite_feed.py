@@ -396,6 +396,55 @@ def generate_option_chain(
     )
 
 
+def _fetch_minute_candles(
+    kite,
+    token: int,
+    instrument: Instrument,
+    session_date: date,
+    minutes: int,
+    label: str,
+) -> list[tuple[datetime, float, int]]:
+    """Shared Historical Data API fetch, used by both ``generate_minute_series``
+    (underlying) and ``futures_minute_series`` (futures contract) — same
+    "cap an in-progress today at now" handling either way.
+    """
+    start = datetime.combine(session_date, instrument.session_start)
+    end = datetime.combine(session_date, instrument.session_end)
+    if session_date == date.today():
+        # Requesting a still-in-progress (or not-yet-started) session's full
+        # end-of-day range returns no candles at all — Kite has nothing to
+        # give for minutes that haven't happened yet. Cap the request at
+        # "now" instead, and give a clear, specific error if the session
+        # hasn't opened yet rather than a confusing empty result.
+        # NSE session_start/session_end are IST wall-clock times, so "now"
+        # must be read in IST too — a bare datetime.now() reads the host's
+        # system clock, which on a cloud container is almost always UTC,
+        # not IST. Comparing that naive UTC reading directly against IST
+        # wall-clock start/end silently under-fetches by ~5.5 hours (e.g.
+        # at real IST 15:25, naive UTC reads ~09:55, capping the request
+        # there and missing everything after — including a 3:00-3:15pm
+        # CAS reference window query).
+        from app.core.timezone import IST
+
+        now = datetime.now(IST).replace(tzinfo=None)
+        if now < start:
+            raise KiteFeedError(
+                f"Market hasn't opened yet today for {label} (session starts {instrument.session_start.strftime('%H:%M')}); "
+                "no intraday minute data available until then."
+            )
+        end = min(end, now)
+
+    try:
+        candles = kite.historical_data(token, start, end, interval="minute")
+    except _KiteTransportError as exc:
+        raise KiteFeedError(f"Historical data request failed for {label} on {session_date}: {exc}") from exc
+
+    if not candles:
+        raise KiteFeedError(f"No historical minute data returned for {label} on {session_date}")
+
+    return [(c["date"].replace(tzinfo=None), float(c["close"]), int(c.get("volume") or 0)) for c in candles[:minutes]]
+
+
 def generate_minute_series(
     symbol: str,
     session_date: date | None = None,
@@ -427,38 +476,24 @@ def generate_minute_series(
             f"verify Instrument.kite_underlying_name / kite_spot_tradingsymbol."
         )
 
-    start = datetime.combine(session_date, instrument.session_start)
-    end = datetime.combine(session_date, instrument.session_end)
-    if session_date == date.today():
-        # Requesting a still-in-progress (or not-yet-started) session's full
-        # end-of-day range returns no candles at all — Kite has nothing to
-        # give for minutes that haven't happened yet. Cap the request at
-        # "now" instead, and give a clear, specific error if the session
-        # hasn't opened yet rather than a confusing empty result.
-        # NSE session_start/session_end are IST wall-clock times, so "now"
-        # must be read in IST too — a bare datetime.now() reads the host's
-        # system clock, which on a cloud container is almost always UTC,
-        # not IST. Comparing that naive UTC reading directly against IST
-        # wall-clock start/end silently under-fetches by ~5.5 hours (e.g.
-        # at real IST 15:25, naive UTC reads ~09:55, capping the request
-        # there and missing everything after — including a 3:00-3:15pm
-        # CAS reference window query).
-        from app.core.timezone import IST
+    return _fetch_minute_candles(kite, match["instrument_token"], instrument, session_date, minutes, symbol)
 
-        now = datetime.now(IST).replace(tzinfo=None)
-        if now < start:
-            raise KiteFeedError(
-                f"Market hasn't opened yet today for {symbol} (session starts {instrument.session_start.strftime('%H:%M')}); "
-                "no intraday minute data available until then."
-            )
-        end = min(end, now)
 
-    try:
-        candles = kite.historical_data(match["instrument_token"], start, end, interval="minute")
-    except _KiteTransportError as exc:
-        raise KiteFeedError(f"Historical data request failed for {symbol} on {session_date}: {exc}") from exc
-
-    if not candles:
-        raise KiteFeedError(f"No historical minute data returned for {symbol} on {session_date}")
-
-    return [(c["date"].replace(tzinfo=None), float(c["close"]), int(c.get("volume") or 0)) for c in candles[:minutes]]
+def futures_minute_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+) -> list[tuple[datetime, float, int]]:
+    """Real minute-by-minute (futures contract close, volume) for the same
+    current-month contract ``futures_snapshot`` quotes — the Futures
+    Monitor's live chart data source. Unlike ``generate_minute_series``
+    (which tracks the underlying index/cash instrument), this follows the
+    futures contract's own price path, via the Historical Data API.
+    """
+    instrument = get_instrument(symbol)
+    kite = get_kite_client()
+    session_date = session_date or date.today()
+    contract = _resolve_active_futures_contract(kite, instrument, session_date)
+    return _fetch_minute_candles(
+        kite, contract["instrument_token"], instrument, session_date, minutes, f"{symbol} futures"
+    )

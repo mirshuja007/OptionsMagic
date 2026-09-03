@@ -75,3 +75,16 @@ def futures_snapshot(symbol: str) -> dict:
     quote. See either provider module's ``futures_snapshot`` docstring.
     """
     return _module().futures_snapshot(symbol)
+
+
+def futures_minute_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+):
+    """Minute-by-minute futures price path for the Futures Monitor's live
+    chart — the futures contract's own price, not the underlying index
+    (see ``generate_minute_series`` for that). Mock: a simulated GBM path.
+    Kite: real minute candles via the Historical Data API.
+    """
+    return _module().futures_minute_series(symbol, session_date=session_date, minutes=minutes)
