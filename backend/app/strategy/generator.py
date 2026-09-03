@@ -1,7 +1,15 @@
 """Combinatorial generation of multi-leg strategy candidates from a live
-option chain: credit spreads, iron condors, iron flies, and ratio spreads.
-Each candidate is a plain list of ``Leg`` that downstream margin/PoP/solver
-code can treat identically regardless of strategy shape.
+option chain: credit spreads, debit spreads, iron condors, iron flies, and
+ratio spreads. Each candidate is a plain list of ``Leg`` that downstream
+margin/PoP/solver code can treat identically regardless of strategy shape.
+
+Credit spreads/condors/flies/ratios are all net premium-*sold*; debit
+spreads (``bull_call_spread``, ``bear_put_spread``) are net premium-*paid*
+— the counterpart shapes for when IV is cheap rather than rich. See
+``app.strategy.solver``'s IV-regime alignment scoring for how that
+distinction feeds ranking. All-single-expiry only: nothing here generates
+calendar/diagonal spreads, which need a per-leg expiry the ``Leg`` model
+doesn't carry yet — a larger data-model change, not a same-expiry addition.
 """
 from __future__ import annotations
 
@@ -89,6 +97,57 @@ def bear_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)
     return out
 
 
+def bull_call_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
+    """Debit spreads: long a call at-or-below spot, short a further-OTM
+    call — bullish, net premium *paid*, defined risk. The premium-buying
+    counterpart to ``bull_put_spreads``' premium-selling bullish shape;
+    see ``app.strategy.solver``'s IV-regime alignment for when this shape
+    should be favored over that one (cheap IV) rather than always
+    screening both equally.
+    """
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
+    out: list[Candidate] = []
+    for row in chain.rows:
+        if row.strike > chain.spot:
+            continue  # long leg should be ATM-or-ITM for a genuine debit-spread edge
+        for width in widths:
+            short_strike = row.strike + width * step
+            if short_strike not in by_strike:
+                continue
+            legs = [
+                build_leg(row, OptionType.CALL, Side.LONG, 1, q),
+                build_leg(by_strike[short_strike], OptionType.CALL, Side.SHORT, 1, q),
+            ]
+            out.append(Candidate("bull_call_spread", legs))
+    return out
+
+
+def bear_put_spreads(chain: OptionChain, widths: tuple[int, ...] = (1, 2, 3, 4)) -> list[Candidate]:
+    """Debit spreads: long a put at-or-above spot, short a further-OTM
+    put — bearish, net premium paid, defined risk. The premium-buying
+    counterpart to ``bear_call_spreads``.
+    """
+    by_strike = row_by_strike(chain)
+    step = strike_step(chain)
+    q = carry_rate(chain)
+    out: list[Candidate] = []
+    for row in chain.rows:
+        if row.strike < chain.spot:
+            continue  # long leg should be ATM-or-ITM
+        for width in widths:
+            short_strike = row.strike - width * step
+            if short_strike not in by_strike:
+                continue
+            legs = [
+                build_leg(row, OptionType.PUT, Side.LONG, 1, q),
+                build_leg(by_strike[short_strike], OptionType.PUT, Side.SHORT, 1, q),
+            ]
+            out.append(Candidate("bear_put_spread", legs))
+    return out
+
+
 def _iron_condors_from(puts: list[Candidate], calls: list[Candidate], max_combos: int = 300) -> list[Candidate]:
     out: list[Candidate] = []
     for put_spread in puts:
@@ -171,6 +230,8 @@ def strike_step(chain: OptionChain) -> float:
 ALL_STRATEGY_TYPES = (
     "bull_put_spread",
     "bear_call_spread",
+    "bull_call_spread",
+    "bear_put_spread",
     "iron_condor",
     "iron_fly",
     "ratio_spread_call",
@@ -200,6 +261,10 @@ def generate_all_candidates(
         out += puts
     if "bear_call_spread" in want:
         out += calls
+    if "bull_call_spread" in want:
+        out += bull_call_spreads(chain)
+    if "bear_put_spread" in want:
+        out += bear_put_spreads(chain)
     if "iron_condor" in want:
         out += _iron_condors_from(puts, calls, max_combos=max_iron_condor_combos)
     if "iron_fly" in want:

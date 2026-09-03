@@ -1,7 +1,16 @@
 from app.data.instruments import get_instrument
 from app.data.mock_feed import generate_option_chain
-from app.strategy.generator import bear_call_spreads, bull_put_spreads, generate_all_candidates, iron_condors, iron_flies
-from app.strategy.solver import StrategyConstraints, discover_strategies
+from app.strategy.generator import (
+    bear_call_spreads,
+    bear_put_spreads,
+    bull_call_spreads,
+    bull_put_spreads,
+    generate_all_candidates,
+    iron_condors,
+    iron_flies,
+)
+from app.strategy.legs import Side
+from app.strategy.solver import StrategyConstraints, discover_strategies, evaluate_strategy
 
 
 def test_generator_produces_defined_risk_candidates():
@@ -31,8 +40,46 @@ def test_generate_all_candidates_nonempty():
     strategy_types = {c.strategy_type for c in candidates}
     assert "bull_put_spread" in strategy_types
     assert "bear_call_spread" in strategy_types
+    assert "bull_call_spread" in strategy_types
+    assert "bear_put_spread" in strategy_types
     assert "iron_condor" in strategy_types
     assert "iron_fly" in strategy_types
+
+
+def test_debit_spread_generator_shapes_are_correct():
+    chain = generate_option_chain("NIFTY", seed=33)
+    calls = bull_call_spreads(chain)
+    puts = bear_put_spreads(chain)
+
+    assert len(calls) > 0
+    assert len(puts) > 0
+
+    for cand in calls:
+        assert cand.strategy_type == "bull_call_spread"
+        assert len(cand.legs) == 2
+        long_leg, short_leg = cand.legs
+        assert long_leg.side == Side.LONG
+        assert short_leg.side == Side.SHORT
+        assert long_leg.strike < short_leg.strike  # long the near strike, short further OTM
+        assert long_leg.strike <= chain.spot
+
+    for cand in puts:
+        assert cand.strategy_type == "bear_put_spread"
+        long_leg, short_leg = cand.legs
+        assert long_leg.side == Side.LONG
+        assert short_leg.side == Side.SHORT
+        assert long_leg.strike > short_leg.strike  # long the near strike, short further OTM
+        assert long_leg.strike >= chain.spot
+
+
+def test_debit_spreads_are_genuinely_net_debit_not_credit():
+    # The defining feature of a debit spread: you pay to enter, unlike
+    # every credit shape elsewhere in this file (positive net_entry_credit).
+    chain = generate_option_chain("NIFTY", seed=34)
+    instrument = get_instrument("NIFTY")
+    for cand in bull_call_spreads(chain)[:5] + bear_put_spreads(chain)[:5]:
+        result = evaluate_strategy(cand.legs, chain, instrument, n_paths=1000, strategy_type=cand.strategy_type)
+        assert result.margin.net_entry_credit < 0, f"{cand.strategy_type} should be a net debit"
 
 
 def test_solver_respects_constraint_caps():
@@ -119,6 +166,20 @@ def test_max_profit_cap_none_avoids_conflict_with_min_yield_pct():
     results = discover_strategies(chain, instrument, unlimited_profit, top_n=5)
     assert len(results) > 0
     assert all(r.yield_pct >= 0.5 - 1e-6 for r in results)
+
+
+def test_solver_discovers_debit_spreads_when_restricted_to_them():
+    chain = generate_option_chain("NIFTY", seed=35)
+    instrument = get_instrument("NIFTY")
+    constraints = StrategyConstraints(
+        min_pop=0.0, min_yield_pct=0.0, max_profit_cap=None, max_loss_cap=None, margin_cap=1_000_000,
+        n_paths_screen=1000, n_paths_final=4000,
+        strategy_types=frozenset({"bull_call_spread", "bear_put_spread"}),
+    )
+    results = discover_strategies(chain, instrument, constraints, top_n=5)
+    assert results
+    assert all(r.strategy_type in ("bull_call_spread", "bear_put_spread") for r in results)
+    assert all(r.margin.net_entry_credit < 0 for r in results)
 
 
 def test_solver_with_impossible_constraints_returns_empty():

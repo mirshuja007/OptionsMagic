@@ -6,6 +6,9 @@ from app.strategy.solver import (
     StrategyConstraints,
     _apply_composite_scores,
     _direction_lean,
+    _iv_alignment,
+    _premium_lean,
+    _strike_safety_fraction,
     _target_direction,
     _technical_alignment,
     build_research_context,
@@ -15,21 +18,66 @@ from app.strategy.solver import (
 
 def test_direction_lean_mapping():
     assert _direction_lean("bull_put_spread") == "bullish"
+    assert _direction_lean("bull_call_spread") == "bullish"
     assert _direction_lean("ratio_spread_put") == "bullish"
     assert _direction_lean("bear_call_spread") == "bearish"
+    assert _direction_lean("bear_put_spread") == "bearish"
     assert _direction_lean("ratio_spread_call") == "bearish"
     assert _direction_lean("iron_condor") == "neutral"
     assert _direction_lean("iron_fly") == "neutral"
 
 
-def _ctx(smart_oi_bias="neutral", vwap_direction="neutral", support=24700.0, resistance=24900.0, max_pain=24800.0):
+def test_premium_lean_mapping():
+    assert _premium_lean("bull_call_spread") == "debit"
+    assert _premium_lean("bear_put_spread") == "debit"
+    for credit_type in ("bull_put_spread", "bear_call_spread", "iron_condor", "iron_fly",
+                         "ratio_spread_call", "ratio_spread_put"):
+        assert _premium_lean(credit_type) == "credit"
+
+
+def _ctx(smart_oi_bias="neutral", vwap_direction="neutral", support=24700.0, resistance=24900.0,
+         max_pain=24800.0, iv_regime="neutral"):
     return ResearchContext(
         support_strike=support,
         resistance_strike=resistance,
         max_pain_strike=max_pain,
         smart_oi_bias=smart_oi_bias,
         vwap_direction=vwap_direction,
+        iv_regime=iv_regime,
     )
+
+
+def test_iv_alignment_rewards_credit_shapes_when_iv_rich():
+    ctx = _ctx(iv_regime="rich")
+    assert _iv_alignment("bull_put_spread", ctx) == 1.0
+    assert _iv_alignment("iron_condor", ctx) == 1.0
+    assert _iv_alignment("bull_call_spread", ctx) == 0.0
+
+
+def test_iv_alignment_rewards_debit_shapes_when_iv_cheap():
+    ctx = _ctx(iv_regime="cheap")
+    assert _iv_alignment("bull_call_spread", ctx) == 1.0
+    assert _iv_alignment("bear_put_spread", ctx) == 1.0
+    assert _iv_alignment("bull_put_spread", ctx) == 0.0
+
+
+def test_iv_alignment_neutral_when_regime_unread():
+    ctx = _ctx(iv_regime="neutral")
+    assert _iv_alignment("bull_put_spread", ctx) == 0.5
+    assert _iv_alignment("bull_call_spread", ctx) == 0.5
+
+
+def test_strike_safety_fraction_neutral_for_debit_spreads():
+    # Debit spreads' risk-defining leg is the long one (known, already-paid
+    # max loss) — the credit-spread "short strike beyond S/R" framing
+    # doesn't transfer, so this must return a fixed neutral 0.5 rather than
+    # a fabricated cushion score (see the function's docstring).
+    chain = generate_option_chain("NIFTY", seed=47)
+    ctx = build_research_context(chain, vwap=None)
+    candidates = generate_all_candidates(chain, strategy_types={"bull_call_spread", "bear_put_spread"})
+    assert candidates
+    for cand in candidates[:20]:
+        assert _strike_safety_fraction(cand.strategy_type, cand.legs, ctx, chain.spot) == 0.5
 
 
 def test_target_direction_explicit_bias_wins_over_signals():
@@ -70,6 +118,19 @@ def test_build_research_context_vwap_direction_reflects_spot_position():
     below = build_research_context(chain, vwap=chain.spot + 50)
     assert above.vwap_direction == "bullish"
     assert below.vwap_direction == "bearish"
+
+
+def test_build_research_context_iv_regime_defaults_neutral_without_minute_prices():
+    chain = generate_option_chain("NIFTY", seed=41)
+    ctx = build_research_context(chain, vwap=None)
+    assert ctx.iv_regime == "neutral"
+
+
+def test_build_research_context_iv_regime_from_minute_prices():
+    chain = generate_option_chain("NIFTY", seed=41)
+    flat_prices = [chain.spot] * 50  # ~zero realized vol -> reads as IV-rich
+    ctx = build_research_context(chain, vwap=None, minute_prices=flat_prices)
+    assert ctx.iv_regime == "rich"
 
 
 def test_technical_alignment_is_zero_without_context():

@@ -223,6 +223,20 @@ def _current_vwap(symbol: str) -> float | None:
     return round(vwaps[-1], 2) if vwaps else None
 
 
+def _current_minute_prices(symbol: str) -> list[float] | None:
+    """Today's minute-close series for ``symbol``, or None on the same
+    conditions ``_current_vwap`` tolerates. Feeds
+    ``build_research_context``'s IV-regime read (ATM IV vs. realized vol
+    so far) — an unavailable series just means iv_regime stays "neutral",
+    not a failed request.
+    """
+    try:
+        series = generate_minute_series(symbol)
+    except (KiteFeedError, KiteAuthError):
+        return None
+    return [p for _, p, _ in series] or None
+
+
 @router.get("/analytics/commentary/{symbol}")
 def commentary(symbol: str, expiry: date | None = None):
     """Structured inputs for the Research Mode commentary box: OI-based
@@ -272,7 +286,8 @@ def discover(req: DiscoverRequest):
     research_ctx = None
     if c.use_research_signals:
         vwap_value = _current_vwap(chain.symbol)
-        research_ctx = build_research_context(chain, vwap=vwap_value)
+        minute_prices = _current_minute_prices(chain.symbol)
+        research_ctx = build_research_context(chain, vwap=vwap_value, minute_prices=minute_prices)
     results = discover_strategies(chain, instrument, constraints, research_ctx=research_ctx)
     return DiscoverResponse(
         symbol=chain.symbol, spot=chain.spot, expiry=chain.expiry,

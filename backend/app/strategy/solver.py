@@ -1,9 +1,9 @@
 """Constraint-Solving Strategy Discovery Engine.
 
-Sweeps every combinatorially generated candidate (credit spreads, iron
-condors, iron flies, ratio spreads) against the user's risk/capital/
-probability boundaries, scores the survivors, and returns the top-ranked
-ones.
+Sweeps every combinatorially generated candidate (credit spreads, debit
+spreads, iron condors, iron flies, ratio spreads — see
+``app.strategy.generator``) against the user's risk/capital/probability
+boundaries, scores the survivors, and returns the top-ranked ones.
 
 Screening runs Monte-Carlo PoP/EV at a cheap path count across every
 candidate (numpy-vectorized, so a few hundred candidates x a few thousand
@@ -13,12 +13,17 @@ much higher path count for reporting accuracy.
 Ranking is a user-tunable blend of yield-on-margin, probability of profit,
 and Sharpe (EV per unit of P&L variance) — see ``RANKING_WEIGHTS`` — with an
 optional small nudge from Research Mode's read of the chain (OI-based
-support/resistance, Max Pain, Smart OI bias, VWAP position; see
-``ResearchContext`` and ``build_research_context``). The nudge is
-deliberately soft: it can move two close candidates past each other, capped
-at +/-``SIGNAL_BONUS_MAX`` of the base score, but it never overrides the
-hard constraint filters (PoP floor, profit/loss caps, margin cap) and never
-promotes a candidate the pure math ranked far behind.
+support/resistance, Max Pain, Smart OI bias, VWAP position, and IV regime
+— ATM IV priced rich or cheap vs. realized vol; see ``ResearchContext`` and
+``build_research_context``). The nudge is deliberately soft: it can move
+two close candidates past each other, capped at +/-``SIGNAL_BONUS_MAX`` of
+the base score, but it never overrides the hard constraint filters (PoP
+floor, profit/loss caps, margin cap) and never promotes a candidate the
+pure math ranked far behind. The IV-regime component of that nudge (see
+``_iv_alignment``) is what lets the engine favor premium-selling shapes
+when options are rich and premium-buying shapes (debit spreads) when
+they're cheap, instead of only ever screening credit shapes regardless of
+volatility pricing.
 """
 from __future__ import annotations
 
@@ -29,6 +34,7 @@ from dataclasses import dataclass, replace
 from app.analytics import commentary as commentary_mod
 from app.analytics import max_pain as max_pain_mod
 from app.analytics import oi as oi_mod
+from app.analytics import volatility as volatility_mod
 from app.core.black_scholes import OptionType
 from app.core.pop import strategy_pop_monte_carlo
 from app.data.instruments import Instrument
@@ -100,12 +106,18 @@ class ResearchContext:
     max_pain_strike: float
     smart_oi_bias: str  # "bullish" | "bearish" | "neutral"
     vwap_direction: str  # "bullish" | "bearish" | "neutral" — spot vs. session VWAP
+    iv_regime: str = "neutral"  # "rich" | "cheap" | "neutral" — see app.analytics.volatility.iv_hv_spread
 
 
-def build_research_context(chain: OptionChain, vwap: float | None = None) -> ResearchContext:
+def build_research_context(
+    chain: OptionChain, vwap: float | None = None, minute_prices: list[float] | None = None
+) -> ResearchContext:
     """Derive a ResearchContext straight from the chain (and, if available,
-    the session VWAP) using the same analytics Research Mode's commentary
-    box already computes — no separate/duplicated logic.
+    the session VWAP and minute-price series) using the same analytics
+    Research Mode's commentary box already computes — no separate/
+    duplicated logic. ``minute_prices`` (the session's minute closes so
+    far) drives ``iv_regime`` via ATM-IV-vs-realized-vol; omit it and
+    iv_regime stays "neutral" (no bias) rather than guessing.
     """
     sr = commentary_mod.support_resistance(chain)
     mp = max_pain_mod.compute_max_pain(chain)
@@ -116,29 +128,50 @@ def build_research_context(chain: OptionChain, vwap: float | None = None) -> Res
         diff = chain.spot - vwap
         vwap_direction = "bullish" if diff > 0.01 else "bearish" if diff < -0.01 else "neutral"
 
+    iv_regime = "neutral"
+    if minute_prices:
+        iv_regime = volatility_mod.iv_hv_spread(chain, minute_prices)["regime"]
+
     return ResearchContext(
         support_strike=sr.support_strike,
         resistance_strike=sr.resistance_strike,
         max_pain_strike=mp.max_pain_strike,
         smart_oi_bias=smart["bias"],
         vwap_direction=vwap_direction,
+        iv_regime=iv_regime,
     )
 
 
 def _direction_lean(strategy_type: str) -> str:
-    """Which side of the market a strategy shape implicitly bets on, from
-    which side carries the extra naked-short exposure: net short puts hurts
-    on a fall (so the trade wants the market to hold up = bullish lean); net
-    short calls hurts on a rally (bearish lean). Iron condors/flies are
-    symmetric (both sides shorted equally) — neutral. This is a simplifying
-    heuristic for the ranking nudge only, not a claim about a strategy's
-    full risk profile.
+    """Which side of the market a strategy shape implicitly bets on.
+    Credit spreads/ratios lean by which side carries the extra naked-short
+    exposure (net short puts hurts on a fall = bullish lean; net short
+    calls hurts on a rally = bearish lean); debit spreads lean by which
+    direction the long leg profits from (long calls = bullish, long puts =
+    bearish) — same directional bet, opposite premium direction, see
+    ``_premium_lean``. Iron condors/flies are symmetric (both sides
+    shorted equally) — neutral. This is a simplifying heuristic for the
+    ranking nudge only, not a claim about a strategy's full risk profile.
     """
-    if strategy_type in ("bull_put_spread", "ratio_spread_put"):
+    if strategy_type in ("bull_put_spread", "bull_call_spread", "ratio_spread_put"):
         return "bullish"
-    if strategy_type in ("bear_call_spread", "ratio_spread_call"):
+    if strategy_type in ("bear_call_spread", "bear_put_spread", "ratio_spread_call"):
         return "bearish"
     return "neutral"
+
+
+def _premium_lean(strategy_type: str) -> str:
+    """"credit" (net premium collected at entry) or "debit" (net premium
+    paid) — every generator.py shape except the two debit spreads is
+    credit by construction (iron condors/flies/ratio spreads all sell more
+    than they buy). Drives the IV-regime alignment component of the score:
+    credit shapes want IV priced rich (sell expensive premium), debit
+    shapes want IV priced cheap (buy inexpensive premium) — see
+    ``_iv_alignment``.
+    """
+    if strategy_type in ("bull_call_spread", "bear_put_spread"):
+        return "debit"
+    return "credit"
 
 
 def _target_direction(ctx: ResearchContext, direction_bias: str) -> str:
@@ -164,12 +197,21 @@ def _short_leg_strike(legs: list[Leg], option_type: OptionType) -> float | None:
 
 def _strike_safety_fraction(strategy_type: str, legs: list[Leg], ctx: ResearchContext, spot: float) -> float:
     """0..1: how much cushion this candidate's risk strike(s) have against
-    Research Mode's read of the chain. Directional strategies are scored by
-    distance of their short strike beyond the OI-based support/resistance
-    wall (capped at ``_CUSHION_CAP_PCT`` of spot for full credit); neutral
-    strategies (iron condor/fly) are scored by how centered their short
-    strikes are around Max Pain.
+    Research Mode's read of the chain. Directional *credit* strategies are
+    scored by distance of their short strike beyond the OI-based support/
+    resistance wall (capped at ``_CUSHION_CAP_PCT`` of spot for full
+    credit); neutral strategies (iron condor/fly) are scored by how
+    centered their short strikes are around Max Pain. Debit spreads
+    (bull_call_spread/bear_put_spread) return a fixed neutral 0.5: their
+    risk-defining leg is the long one (already-known, already-paid max
+    loss), not a short strike that needs to clear a support/resistance
+    wall — that framing doesn't transfer, so this deliberately doesn't
+    score them on it rather than force-fitting a number that would look
+    more meaningful than it is. Their real edge in this scoring lives in
+    ``_iv_alignment`` instead.
     """
+    if _premium_lean(strategy_type) == "debit":
+        return 0.5
     lean = _direction_lean(strategy_type)
     if lean == "bullish":
         short_strike = _short_leg_strike(legs, OptionType.PUT)
@@ -197,14 +239,32 @@ def _strike_safety_fraction(strategy_type: str, legs: list[Leg], ctx: ResearchCo
     return max(1.0 - abs(ctx.max_pain_strike - mid) / half_width, 0.0)
 
 
+def _iv_alignment(strategy_type: str, ctx: ResearchContext) -> float:
+    """0/0.5/1: does this shape's premium direction match the IV regime?
+    Credit shapes (sell premium) want ``ctx.iv_regime == "rich"``; debit
+    shapes (buy premium) want "cheap". An unread/neutral regime scores 0.5
+    for everything — no bias either way, not a penalty — rather than
+    treating "we don't know" as "wrong regime."
+    """
+    if ctx.iv_regime == "neutral":
+        return 0.5
+    lean = _premium_lean(strategy_type)
+    if lean == "credit":
+        return 1.0 if ctx.iv_regime == "rich" else 0.0
+    return 1.0 if ctx.iv_regime == "cheap" else 0.0
+
+
 def _technical_alignment(
     strategy_type: str, legs: list[Leg], ctx: ResearchContext | None, direction_bias: str, spot: float
 ) -> float:
-    """0..1 composite alignment score: 70% strike-safety-margin (see
-    ``_strike_safety_fraction``), 30% whether the candidate's directional
+    """0..1 composite alignment score: 50% strike-safety-margin (see
+    ``_strike_safety_fraction``), 25% whether the candidate's directional
     lean matches ``_target_direction`` (neutral strategies get no
     directional component either way — they're scored entirely on Max Pain
-    centering).
+    centering), 25% whether the candidate's premium direction (credit vs.
+    debit, see ``_premium_lean``) matches the IV regime (see
+    ``_iv_alignment``) — e.g. a credit spread in a rich-IV regime, or a
+    debit spread in a cheap-IV regime, both score full marks here.
     """
     if ctx is None:
         return 0.0
@@ -213,7 +273,8 @@ def _technical_alignment(
     direction_bonus = 0.0
     if lean != "neutral":
         direction_bonus = 1.0 if lean == _target_direction(ctx, direction_bias) else 0.0
-    return 0.7 * safety + 0.3 * direction_bonus
+    iv_bonus = _iv_alignment(strategy_type, ctx)
+    return 0.5 * safety + 0.25 * direction_bonus + 0.25 * iv_bonus
 
 
 def _normalize(values: list[float]) -> list[float]:

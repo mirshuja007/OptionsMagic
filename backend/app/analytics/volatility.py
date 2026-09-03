@@ -42,14 +42,36 @@ def realized_volatility(minute_prices: list[float], annualization_minutes: int =
     return per_minute_vol * math.sqrt(annualization_minutes)
 
 
-def iv_hv_spread(chain: OptionChain, minute_prices: list[float]) -> dict:
+def iv_hv_spread(chain: OptionChain, minute_prices: list[float], neutral_band: float = 0.02) -> dict:
+    """ATM IV vs. realized (historical) vol from the session so far — the
+    cheapest available read on whether options are priced rich or cheap
+    *right now*, with zero history to accumulate first (contrast with a
+    true IV percentile/rank, which needs weeks of persisted daily IV
+    snapshots this platform doesn't keep yet).
+
+    ``regime`` is 3-way, not a bare ``iv > hv`` comparison: within
+    +/-``neutral_band`` (vol points, e.g. 0.02 = 2 points) of each other,
+    the read is "neutral" rather than confidently rich/cheap off a
+    razor-thin, noisy spread. "rich" means options are priced above
+    realized vol (favors premium-selling shapes); "cheap" means priced
+    below it (favors premium-buying shapes) — see
+    ``app.strategy.solver``'s IV-regime alignment scoring, the actual
+    consumer of this.
+    """
     iv = atm_iv(chain)
     hv = realized_volatility(minute_prices)
+    spread = iv - hv
+    if spread > neutral_band:
+        regime = "rich"
+    elif spread < -neutral_band:
+        regime = "cheap"
+    else:
+        regime = "neutral"
     return {
         "atm_iv": iv,
         "historical_vol": round(hv, 4),
-        "spread": round(iv - hv, 4),
-        "regime": "iv_rich" if iv > hv else "iv_cheap",
+        "spread": round(spread, 4),
+        "regime": regime,
     }
 
 

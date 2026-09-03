@@ -178,6 +178,8 @@ export interface LiveMarginResponse {
 export type StrategyType =
   | "bull_put_spread"
   | "bear_call_spread"
+  | "bull_call_spread"
+  | "bear_put_spread"
   | "iron_condor"
   | "iron_fly"
   | "ratio_spread_call"

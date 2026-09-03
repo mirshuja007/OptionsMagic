@@ -18,6 +18,8 @@ SIDE_OPTIONS = [("BUY", "Buy"), ("SELL", "Sell")]
 STRATEGY_TYPE_OPTIONS = [
     ("bull_put_spread", "Bull Put Spread"),
     ("bear_call_spread", "Bear Call Spread"),
+    ("bull_call_spread", "Bull Call Spread"),
+    ("bear_put_spread", "Bear Put Spread"),
     ("iron_condor", "Iron Condor"),
     ("iron_fly", "Iron Fly"),
     ("ratio_spread_call", "Ratio Spread (Call)"),
@@ -85,8 +87,11 @@ def _render_discover() -> None:
             if use_research_signals:
                 st.caption(
                     "Nudges ranking toward candidates whose short strikes sit beyond OI-based support/resistance "
-                    "(or, for iron condors/flies, centered on Max Pain) and whose directional lean matches Smart "
-                    "OI / VWAP. Capped at +/-15% of the base score — it never overrides the constraints above."
+                    "(or, for iron condors/flies, centered on Max Pain), whose directional lean matches Smart "
+                    "OI / VWAP, and whose premium direction matches the IV regime — credit shapes (spreads/"
+                    "condors/flies) favored when ATM IV is priced rich vs. realized vol, debit shapes (bull "
+                    "call/bear put spreads) favored when it's cheap. Capped at +/-15% of the base score — it "
+                    "never overrides the constraints above."
                 )
             direction_bias = st.selectbox(
                 "Direction Bias", [k for k, _ in DIRECTION_BIAS_OPTIONS], format_func=dict(DIRECTION_BIAS_OPTIONS).get,
@@ -140,11 +145,13 @@ def _render_discover() -> None:
 
         series, series_err = safe_call(generate_minute_series, symbol)
         vwap_value = None
+        minute_prices = None
         if series and not series_err:
+            minute_prices = [p for _, p, _ in series]
             vwaps = vwap_mod.vwap_series([(p, v) for _, p, v in series])
             if vwaps:
                 vwap_value = round(vwaps[-1], 2)
-        research_ctx = build_research_context(chain, vwap=vwap_value)
+        research_ctx = build_research_context(chain, vwap=vwap_value, minute_prices=minute_prices)
 
     with st.spinner("Solving…"):
         results = discover_strategies(chain, instrument, constraints, research_ctx=research_ctx)

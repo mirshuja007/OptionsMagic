@@ -14,6 +14,8 @@ export interface StrategyFormValues {
 const STRATEGY_TYPE_OPTIONS: { value: StrategyType; label: string }[] = [
   { value: "bull_put_spread", label: "Bull Put Spread" },
   { value: "bear_call_spread", label: "Bear Call Spread" },
+  { value: "bull_call_spread", label: "Bull Call Spread" },
+  { value: "bear_put_spread", label: "Bear Put Spread" },
   { value: "iron_condor", label: "Iron Condor" },
   { value: "iron_fly", label: "Iron Fly" },
   { value: "ratio_spread_call", label: "Ratio Spread (Call)" },

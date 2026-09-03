@@ -109,7 +109,8 @@ class StrategyConstraintsIn(BaseModel):
     ranking_mode: Literal["yield", "balanced", "safety"] = "balanced"
     # Keep this literal list in sync with app.strategy.generator.ALL_STRATEGY_TYPES.
     strategy_types: list[Literal[
-        "bull_put_spread", "bear_call_spread", "iron_condor", "iron_fly", "ratio_spread_call", "ratio_spread_put"
+        "bull_put_spread", "bear_call_spread", "bull_call_spread", "bear_put_spread",
+        "iron_condor", "iron_fly", "ratio_spread_call", "ratio_spread_put"
     ]] | None = None  # None = every type
     use_research_signals: bool = True
     direction_bias: Literal["auto", "bullish", "bearish", "neutral"] = "auto"

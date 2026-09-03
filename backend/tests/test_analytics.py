@@ -2,7 +2,7 @@ from app.analytics.max_pain import compute_max_pain
 from app.analytics.oi import gamma_exposure, multistrike_oi, smart_oi_score
 from app.analytics.pcr import compute_pcr
 from app.analytics.straddle import atm_straddle, multistrike_straddle, premium_decay_curve
-from app.analytics.volatility import atm_iv, iv_grid, realized_volatility, volatility_skew
+from app.analytics.volatility import atm_iv, iv_grid, iv_hv_spread, realized_volatility, volatility_skew
 from app.data.mock_feed import generate_option_chain, generate_minute_series
 
 
@@ -59,6 +59,33 @@ def test_realized_volatility_positive_for_a_moving_series():
     prices = [p for _, p, _ in generate_minute_series("NIFTY", seed=17)]
     hv = realized_volatility(prices)
     assert hv > 0
+
+
+def test_iv_hv_spread_regime_rich_when_iv_well_above_hv():
+    chain = generate_option_chain("NIFTY", seed=17)
+    flat_prices = [chain.spot] * 50  # ~zero realized vol -> any positive IV reads as "rich"
+    result = iv_hv_spread(chain, flat_prices)
+    assert result["regime"] == "rich"
+    assert result["spread"] > 0
+
+
+def test_iv_hv_spread_regime_neutral_within_band():
+    chain = generate_option_chain("NIFTY", seed=17)
+    iv = atm_iv(chain)
+    # A synthetic price series whose realized vol lands the spread inside
+    # the default +/-0.02 neutral band, regardless of this chain's actual IV.
+    result = iv_hv_spread(chain, [chain.spot] * 50, neutral_band=1.0)
+    assert result["atm_iv"] == iv
+    assert result["regime"] == "neutral"
+
+
+def test_iv_hv_spread_regime_cheap_when_hv_well_above_iv():
+    chain = generate_option_chain("NIFTY", seed=17)
+    # A wildly oscillating series drives realized vol far above any sane IV.
+    prices = [chain.spot * (1.15 if i % 2 == 0 else 0.85) for i in range(200)]
+    result = iv_hv_spread(chain, prices)
+    assert result["regime"] == "cheap"
+    assert result["spread"] < 0
 
 
 def test_atm_straddle_combined_equals_call_plus_put():
