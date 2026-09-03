@@ -260,69 +260,33 @@ strikes for a variant of the same strategy shape with a higher max profit
 at no worse max loss or margin, which you can apply with one click. This
 mode isn't in the Next.js frontend yet.
 
-A third page, **CAS Monitor**, covers SEBI's Closing Auction Session — live
-on NSE/BSE from Aug 3, 2026 for stocks with listed F&O contracts, replacing
-the old last-30-minutes-VWAP closing-price method with a 20-minute call
-auction (3:15-3:35pm). It shows the reference price (VWAP of 3:00-3:15pm
-trades, computed from ordinary minute-bar data — no dependency on any
-CAS-specific API field), the +/-3% auction band, where today's timeline
-currently stands, and a plain-language explainer of the mechanism. Note
-CAS is per-stock, not per-index — there's no NIFTY/BANKNIFTY CAS panel,
-since an index's close is still just the weighted sum of its constituents'
-closes. The stock list covers the full deduplicated NIFTY 50 + SENSEX 30
-union (49 names as of this writing — every SENSEX 30 constituent turned out
-to already be a NIFTY 50 one, so the union is just NIFTY 50's own 49; see
-`app.data.index_weights` for the real weight snapshot both index lists come
-from) rather than the full ~200-stock F&O/CAS universe — see
-`app.data.instruments.STOCKS`.
+A third page, **Futures Monitor**, shows live NIFTY and SENSEX index-futures
+readings — current price, change vs. previous close, and the session's
+high/low range (`app.data.kite_feed.futures_snapshot` / `mock_feed`'s
+simulated equivalent, dispatched through the usual `app.data.feed` facade).
 
-Below the single-stock view, a **Constituent Overview** table (load-on-demand
-button, not auto-refreshing — it's one data call per stock) shows reference
-price, band, current price, and deviation for all tracked stocks at once,
-followed by a **Constituent Bias Signal**: the average deviation and
-"breadth" (how much of the tracked universe agrees with that direction)
-across whichever stocks have a reference price so far, bucketed into your
-0.1%/0.3%/1%/3% magnitude ranges. A "Weighting basis" selector switches
-between Equal-weighted (every stock counts the same) and NIFTY 50-weighted /
-SENSEX 30-weighted (real free-float index weights — a 2026-09-01 snapshot in
-`app.data.index_weights`, user-supplied since this sandbox's network egress
-proxy blocks every finance-data site tried, niftyindices.com/nseindia.com/
-bseindia.com/tickertape.in/wikipedia.org included). This is explicitly
-**not** a prediction or probability of index movement — there's no
-statistical or backtested model behind it, just a transparent readout of
-real, currently-observed deviations (see `app.data.cas.compute_bias_signal`'s
-docstring). No "equilibrium price" column either, for the same reason as
-below: that needs live in-auction order-book data this app doesn't have
-confirmed access to.
-
-When `MARKET_DATA_PROVIDER=kite`, an additional "Live auction data
-(diagnostic)" section fetches a raw Kite Connect quote for the selected
-stock and flags any field it doesn't recognize — this is how to check,
-live during the 3:15-3:35pm IST window, whether Kite's API actually
-exposes the same reference-price/indicative-close/imbalance-quantity
-fields Kite Web shows (unconfirmed as of this writing — see
-`app.data.cas`'s module docstring).
-
-A **CAS History** section (works in mock or kite mode) is the one place
-this page builds toward an actual probability: a "Log today's CAS outcome"
-button captures (reference price, real settled close) for NIFTY, SENSEX,
-and every tracked stock into a persistent CSV log (`app.data.cas_history`),
-gated so it only records after the auction has genuinely settled (3:35pm
-IST) rather than a mid-session price masquerading as the final one. Once a
-symbol has logged sessions, it shows the real empirical distribution of
-past moves — mean/std, up/down/flat split, a move-size histogram — always
-next to `n_sessions`, since a handful of days is nowhere near enough to
-trust. This is explicitly *not* a fitted or backtested model, just
-"what's actually happened so far." **Persistence caveat:** Streamlit
-Community Cloud's filesystem resets on redeploy and on idle sleep/wake, so
-this log can vanish between sessions there — use the "Download log (CSV)"
-button periodically to keep a real backup.
+This page replaced an earlier "CAS Monitor" that tracked ~49 individual
+stocks' prices relative to their own SEBI Closing Auction Session (live on
+NSE/BSE from Aug 3, 2026) 3:00-3:15pm reference price. That measure had a
+real blind spot, hit live on 2026-09-03: SENSEX fell as much as ~1600
+points intraday before recovering to close down ~400, and because most
+stocks' reference prices got set only after most of the drop had already
+happened, the late recovery read as "upward" on the old signal even
+though the day was still deeply negative overall — it was answering "how
+did the last 20 minutes go relative to a baseline set near the bottom,"
+not "how did today go." Index futures avoid that blind spot entirely — no
+reference-window baseline to distort the read, and the day's high/low
+range alone shows a swing like that at a glance. Worth being clear-eyed
+about one thing: NIFTY/SENSEX futures don't go through CAS at all — CAS is
+a per-stock mechanism for F&O-eligible stocks only — so this is a better
+*index-direction* gauge, just not itself a CAS-specific reading. See
+`streamlit_pages/cas.py`'s module docstring for the full account.
 
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
 streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
-streamlit_pages/cas.py        CAS Monitor (reference price/band, auction timeline, live-field diagnostic)
+streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see module docstring for the name)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

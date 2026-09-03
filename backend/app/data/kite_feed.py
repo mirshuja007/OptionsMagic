@@ -115,7 +115,7 @@ def available_expiries(symbol: str) -> list[date]:
     close (see ``_effective_expiry_cutoff_date``), so the frontend's expiry
     selector doesn't default to an already-settled contract.
     """
-    from app.data.cas import IST
+    from app.core.timezone import IST
 
     instrument = get_instrument(symbol)
     rows = _option_rows_for(instrument)
@@ -220,30 +220,70 @@ def _underlying_price(kite, instrument: Instrument, resolved_expiry: date) -> tu
     return _quote_underlying(kite, key)
 
 
-def raw_underlying_quote(symbol: str) -> dict:
-    """The full, un-narrowed ``kite.quote()`` response for a stock's spot
-    instrument — unlike ``_quote_underlying`` (which extracts only
-    last_price/ohlc.close), this passes through every field Kite Connect
-    returns. Diagnostic use: during the Closing Auction Session window,
-    Kite Web shows a reference price / indicative close / imbalance
-    quantity for CAS-eligible stocks, but whether the Kite Connect *API*
-    (as opposed to Kite Web's own internal feed) exposes the same fields
-    is unconfirmed — this is how ``app.data.cas`` checks, live, during the
-    actual 3:15-3:35pm IST auction window.
+def _resolve_active_futures_contract(kite, instrument: Instrument, today: date) -> dict:
+    """The nearest not-yet-expired FUT contract for this instrument's
+    underlying — the "current month" contract retail traders mean day to
+    day by "Nifty Futures" / "Sensex Futures". Index futures list on the
+    same exchange as that index's options (``kite_options_exchange``:
+    NFO for NIFTY, BFO for SENSEX), not ``kite_spot_exchange`` (NSE/BSE,
+    where only the cash index itself trades).
+    """
+    dump = _instrument_dump(instrument.kite_options_exchange)
+    fut_rows = [
+        r for r in dump if r.get("name") == instrument.kite_underlying_name and r.get("instrument_type") == "FUT"
+    ]
+    if not fut_rows:
+        raise KiteFeedError(
+            f"No FUT contracts found for name='{instrument.kite_underlying_name}' on "
+            f"{instrument.kite_options_exchange}; verify Instrument.kite_underlying_name."
+        )
+    candidates = sorted(fut_rows, key=lambda r: _as_date(r["expiry"]))
+    upcoming = [r for r in candidates if _as_date(r["expiry"]) >= today]
+    return upcoming[0] if upcoming else candidates[-1]
+
+
+def futures_snapshot(symbol: str) -> dict:
+    """Live current-month index-futures reading for ``symbol`` (NIFTY,
+    SENSEX, ...): last price, previous close, the day's move (points and
+    percent), and the day's high/low range. ``ohlc.high``/``ohlc.low`` in
+    Kite's quote response track the live session range continuously —
+    unlike a reference-price-relative reading, this can't miss a sharp
+    intraday reversal (e.g. a session that fell hard, then recovered most
+    of the way back by the close): the range alone shows both extremes.
     """
     instrument = get_instrument(symbol)
-    if instrument.is_commodity:
-        raise KiteFeedError("raw_underlying_quote doesn't support commodity (futures-underlying) instruments.")
     kite = get_kite_client()
-    key = f"{instrument.kite_spot_exchange}:{instrument.kite_spot_tradingsymbol}"
+    contract = _resolve_active_futures_contract(kite, instrument, date.today())
+    key = f"{instrument.kite_options_exchange}:{contract['tradingsymbol']}"
     try:
         resp = kite.quote(key)
     except _KiteTransportError as exc:
-        raise KiteFeedError(f"Failed to fetch quote for {key}: {exc}") from exc
+        raise KiteFeedError(f"Failed to fetch futures quote for {key}: {exc}") from exc
     try:
-        return resp[key]
+        entry = resp[key]
+        last_price = float(entry["last_price"])
+        ohlc = entry["ohlc"]
+        prev_close = float(ohlc["close"])
+        day_open = float(ohlc["open"])
+        day_high = float(ohlc["high"])
+        day_low = float(ohlc["low"])
     except KeyError as exc:
         raise KiteFeedError(f"Unexpected quote response shape for {key}: {resp}") from exc
+
+    change_pts = last_price - prev_close
+    change_pct = (change_pts / prev_close * 100.0) if prev_close else 0.0
+    return {
+        "symbol": symbol,
+        "tradingsymbol": contract["tradingsymbol"],
+        "expiry": _as_date(contract["expiry"]),
+        "last_price": round(last_price, 2),
+        "prev_close": round(prev_close, 2),
+        "day_open": round(day_open, 2),
+        "day_high": round(day_high, 2),
+        "day_low": round(day_low, 2),
+        "change_pts": round(change_pts, 2),
+        "change_pct": round(change_pct, 3),
+    }
 
 
 def _quote_to_leg(
@@ -293,7 +333,7 @@ def generate_option_chain(
     num_strikes: int | None = None,
     as_of: datetime | None = None,
 ) -> OptionChain:
-    from app.data.cas import IST
+    from app.core.timezone import IST
 
     instrument = get_instrument(symbol)
     kite = get_kite_client()
@@ -403,7 +443,7 @@ def generate_minute_series(
         # at real IST 15:25, naive UTC reads ~09:55, capping the request
         # there and missing everything after — including a 3:00-3:15pm
         # CAS reference window query).
-        from app.data.cas import IST
+        from app.core.timezone import IST
 
         now = datetime.now(IST).replace(tzinfo=None)
         if now < start:

@@ -184,8 +184,7 @@ STOCKS: dict[str, Instrument] = {
                         expiry_cadence="monthly", expiry_weekday=1),
     # NIFTY 50's next heaviest-weight constituents (by index weightage, Aug
     # 2026) — added deliberately over trying to cover the full ~200-stock
-    # F&O/CAS universe, since these are the names that actually move the
-    # index and are what CAS Monitor's stock list is meant to prioritize.
+    # F&O universe, since these are the names that actually move the index.
     # lot_size/base_spot below are best-effort snapshots (Aug 2026); like
     # every other entry here, verify against a live Kite pull before
     # trusting a margin/yield number this produces.
@@ -251,16 +250,15 @@ STOCKS: dict[str, Instrument] = {
                          expiry_cadence="monthly", expiry_weekday=1),
     # Full deduplicated NIFTY 50 + SENSEX 30 membership (49 distinct names —
     # every SENSEX 30 constituent turned out to already be a NIFTY 50 one
-    # too, so the union is just NIFTY 50's own 49; see
-    # app.data.index_weights.NIFTY50_WEIGHTS_PCT / SENSEX30_WEIGHTS_PCT,
-    # both real user-supplied snapshots). Everything above this comment
-    # was the earlier ~top-20-by-weight curation; these 26 round that out
-    # to full membership per explicit request, so CAS Monitor and the
-    # constituent bias signal cover every index name, not just the
-    # heaviest ones. base_spot below is each stock's real CAS reference
-    # price from the 2026-09-01 NSE Closing Auction Session CSV the user
-    # supplied that day — an actual traded snapshot, not invented — but
-    # lot_size/strike_step are principled estimates (NSE roughly targets a
+    # too, so the union is just NIFTY 50's own 49; based on real weight
+    # snapshots the user supplied 2026-09-01). Everything above this
+    # comment was the earlier ~top-20-by-weight curation; these 26 round
+    # that out to full membership per explicit request, so every tracked
+    # symbol here covers every index name, not just the heaviest ones.
+    # base_spot below is each stock's real CAS reference price from the
+    # 2026-09-01 NSE Closing Auction Session CSV the user supplied that
+    # day — an actual traded snapshot, not invented — but lot_size/
+    # strike_step are principled estimates (NSE roughly targets a
     # ₹5-10L contract value per lot; strike step scaled to price the same
     # way the rest of this file's estimated entries are) with no live
     # source to confirm them against in this sandbox. Same "verify against

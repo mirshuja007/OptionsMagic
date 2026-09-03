@@ -61,7 +61,7 @@ _CACHE_PATH = Path(__file__).resolve().parent.parent / ".streamlit" / "kite_sess
 
 
 def _today_ist() -> date:
-    from app.data.cas import IST
+    from app.core.timezone import IST
 
     return datetime.now(IST).date()
 

@@ -294,35 +294,6 @@ def test_generate_option_chain_end_to_end(monkeypatch):
         assert row.call.oi_change == 0
 
 
-def test_raw_underlying_quote_passes_through_every_field(monkeypatch):
-    # Unlike _quote_underlying (which narrows to last_price/ohlc.close),
-    # raw_underlying_quote must hand back the whole dict — including fields
-    # this codebase doesn't otherwise parse, like `depth` — since its whole
-    # purpose is letting a caller inspect what Kite Connect actually returns.
-    quote_map = {
-        "NSE:RELIANCE": {
-            "last_price": 2955.5,
-            "ohlc": {"close": 2940.0},
-            "depth": {"buy": [{"price": 2955.0, "quantity": 10}], "sell": [{"price": 2956.0, "quantity": 5}]},
-        }
-    }
-    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map=quote_map)
-    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
-
-    quote = kite_feed.raw_underlying_quote("RELIANCE")
-
-    assert quote == quote_map["NSE:RELIANCE"]
-    assert "depth" in quote  # the field a plain last_price/ohlc.close read would drop
-
-
-def test_raw_underlying_quote_rejects_commodity_instruments(monkeypatch):
-    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={})
-    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
-
-    with pytest.raises(KiteFeedError):
-        kite_feed.raw_underlying_quote("CRUDEOIL")
-
-
 def test_generate_option_chain_raises_kite_feed_error_on_unmapped_underlying(monkeypatch):
     fake = FakeKite(nfo_rows=[], spot_ltp=100.0, quote_map={})
     monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
@@ -575,3 +546,81 @@ def test_generate_option_chain_for_commodity_uses_futures_underlying(monkeypatch
         # covers Black-76 correctness precisely) — this just checks the
         # futures-underlying wiring produces a sane, positive IV.
         assert 0.1 < row.call.iv < 0.6
+
+
+# ---------------------------------------------------------------------------
+# futures_snapshot (Futures Monitor's live data source)
+# ---------------------------------------------------------------------------
+
+
+def _index_fut_row(name: str, expiry: date, tradingsymbol: str) -> dict:
+    return {"tradingsymbol": tradingsymbol, "name": name, "expiry": expiry, "instrument_type": "FUT"}
+
+
+def test_futures_snapshot_computes_change_and_range(monkeypatch):
+    near_expiry = date.today() + timedelta(days=10)
+    fut_rows = [_index_fut_row("NIFTY", near_expiry, "NIFTY26SEPFUT")]
+    fake = FakeKite(
+        nfo_rows=[], spot_ltp=0.0,
+        quote_map={
+            "NFO:NIFTY26SEPFUT": {
+                "last_price": 24400.0,
+                "ohlc": {"open": 25600.0, "high": 25650.0, "low": 24000.0, "close": 24800.0},
+            }
+        },
+        extra_dumps={"NFO": fut_rows},
+    )
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    snap = kite_feed.futures_snapshot("NIFTY")
+
+    assert snap["tradingsymbol"] == "NIFTY26SEPFUT"
+    assert snap["expiry"] == near_expiry
+    assert snap["last_price"] == 24400.0
+    assert snap["prev_close"] == 24800.0
+    assert snap["day_open"] == 25600.0
+    assert snap["day_high"] == 25650.0
+    assert snap["day_low"] == 24000.0
+    # A sharp intraday round trip (25650 high down to 24000 low) that a
+    # reference-price-relative reading could miss entirely — the range
+    # alone shows it. Net change vs. previous close: -400.
+    assert snap["change_pts"] == -400.0
+    assert snap["change_pct"] == pytest.approx(-400.0 / 24800.0 * 100.0, abs=1e-3)
+
+
+def test_futures_snapshot_picks_nearest_not_yet_expired_contract(monkeypatch):
+    expired = date.today() - timedelta(days=2)
+    near = date.today() + timedelta(days=5)
+    far = date.today() + timedelta(days=35)
+    fut_rows = [
+        _index_fut_row("SENSEX", expired, "SENSEX26AUGFUT"),
+        _index_fut_row("SENSEX", far, "SENSEX26OCTFUT"),
+        _index_fut_row("SENSEX", near, "SENSEX26SEPFUT"),
+    ]
+    fake = FakeKite(
+        nfo_rows=[], spot_ltp=0.0,
+        quote_map={
+            "BFO:SENSEX26SEPFUT": {"last_price": 81000.0, "ohlc": {"open": 81200.0, "high": 81300.0, "low": 80800.0, "close": 81400.0}},
+            "BFO:SENSEX26OCTFUT": {"last_price": 81100.0, "ohlc": {"open": 81200.0, "high": 81300.0, "low": 81000.0, "close": 81400.0}},
+        },
+        extra_dumps={"BFO": fut_rows},
+    )
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    snap = kite_feed.futures_snapshot("SENSEX")
+
+    # The already-expired contract must never be picked, and among the
+    # remaining two, the nearer (September) one wins over the farther one.
+    assert snap["tradingsymbol"] == "SENSEX26SEPFUT"
+    assert snap["expiry"] == near
+
+
+def test_futures_snapshot_raises_when_no_futures_contracts_listed(monkeypatch):
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, extra_dumps={"NFO": []})
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.futures_snapshot("NIFTY")

@@ -22,6 +22,7 @@ __all__ = [
     "OptionChain",
     "RISK_FREE_RATE",
     "available_expiries",
+    "futures_snapshot",
     "generate_minute_series",
     "generate_option_chain",
     "next_weekly_expiry",
@@ -142,7 +143,7 @@ def generate_option_chain(
     as_of: datetime | None = None,
     seed: int | None = None,
 ) -> OptionChain:
-    from app.data.cas import IST
+    from app.core.timezone import IST
 
     instrument = get_instrument(symbol)
     as_of = as_of or datetime.now(IST).replace(tzinfo=None)
@@ -270,3 +271,32 @@ def generate_minute_series(
 
     volumes = _intraday_volume_curve(rng, minutes)
     return [(start + timedelta(minutes=i), p, v) for i, (p, v) in enumerate(zip(prices, volumes))]
+
+
+def futures_snapshot(symbol: str) -> dict:
+    """Simulated current-month index-futures reading — same shape as
+    kite_feed.futures_snapshot's real one (last price, previous close,
+    day's move, day's high/low range), derived from today's simulated
+    minute path rather than a live futures quote. ``prev_close`` uses
+    ``instrument.base_spot``, the same simulated-previous-close convention
+    ``generate_option_chain`` already uses.
+    """
+    instrument = get_instrument(symbol)
+    series = generate_minute_series(symbol)
+    prices = [p for _, p, _ in series]
+    last_price = prices[-1]
+    prev_close = instrument.base_spot
+    change_pts = last_price - prev_close
+    change_pct = (change_pts / prev_close * 100.0) if prev_close else 0.0
+    return {
+        "symbol": symbol,
+        "tradingsymbol": f"{symbol}FUT (simulated)",
+        "expiry": _default_expiry(instrument, date.today()),
+        "last_price": round(last_price, 2),
+        "prev_close": round(prev_close, 2),
+        "day_open": round(prices[0], 2),
+        "day_high": round(max(prices), 2),
+        "day_low": round(min(prices), 2),
+        "change_pts": round(change_pts, 2),
+        "change_pct": round(change_pct, 3),
+    }

@@ -46,3 +46,24 @@ def test_generate_minute_series_mock_provider(monkeypatch):
     monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
     series = feed.generate_minute_series("NIFTY", minutes=10)
     assert len(series) == 10
+
+
+def test_futures_snapshot_mock_provider_shape(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    snap = feed.futures_snapshot("NIFTY")
+    assert snap["symbol"] == "NIFTY"
+    assert snap["last_price"] > 0
+    assert snap["prev_close"] > 0
+    assert snap["day_low"] <= snap["last_price"] <= snap["day_high"]
+    assert snap["day_low"] <= snap["day_open"] <= snap["day_high"]
+    assert snap["change_pts"] == pytest.approx(snap["last_price"] - snap["prev_close"])
+
+
+def test_futures_snapshot_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.futures_snapshot("NIFTY")
+    reset_kite_client()

@@ -66,3 +66,12 @@ def available_expiries(symbol: str) -> list[date]:
     dates currently listed on the exchange.
     """
     return _module().available_expiries(symbol)
+
+
+def futures_snapshot(symbol: str) -> dict:
+    """Current-month index-futures reading (last price, previous close,
+    day's move, day's high/low range) — Futures Monitor's data source.
+    Mock: derived from a simulated minute path. Kite: a live futures
+    quote. See either provider module's ``futures_snapshot`` docstring.
+    """
+    return _module().futures_snapshot(symbol)
