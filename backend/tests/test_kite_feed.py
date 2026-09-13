@@ -676,3 +676,64 @@ def test_futures_minute_series_raises_when_no_futures_contracts_listed(monkeypat
 
     with pytest.raises(KiteFeedError):
         kite_feed.futures_minute_series("NIFTY", session_date=date(2026, 8, 17))
+
+
+def test_daily_series_end_to_end(monkeypatch):
+    candles = [
+        {
+            "date": datetime(2026, 1, 1) + timedelta(days=i),
+            "open": 24000.0 + i,
+            "high": 24010.0 + i,
+            "low": 23990.0 + i,
+            "close": 24005.0 + i,
+            "volume": 1_000_000 + i,
+        }
+        for i in range(30)
+    ]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    bars = kite_feed.daily_series("NIFTY", days=30)
+
+    assert len(bars) == 30
+    d, o, h, l, c, v = bars[0]
+    assert d == date(2026, 1, 1)
+    assert o == 24000.0
+    assert h == 24010.0
+    assert l == 23990.0
+    assert c == 24005.0
+    assert v == 1_000_000
+    assert fake.last_historical_call["interval"] == "day"
+
+
+def test_daily_series_trims_to_requested_days(monkeypatch):
+    candles = [
+        {"date": datetime(2026, 1, 1) + timedelta(days=i), "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100}
+        for i in range(50)
+    ]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    bars = kite_feed.daily_series("NIFTY", days=10)
+    assert len(bars) == 10
+    assert bars[-1][0] == date(2026, 1, 1) + timedelta(days=49)
+
+
+def test_daily_series_raises_for_commodity_instrument(monkeypatch):
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={})
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.daily_series("CRUDEOIL")
+
+
+def test_daily_series_raises_when_no_candles_returned(monkeypatch):
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=[])
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.daily_series("NIFTY")

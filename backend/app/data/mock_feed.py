@@ -22,6 +22,7 @@ __all__ = [
     "OptionChain",
     "RISK_FREE_RATE",
     "available_expiries",
+    "daily_series",
     "futures_minute_series",
     "futures_snapshot",
     "generate_minute_series",
@@ -136,6 +137,18 @@ def _seed_for(symbol: str, seed: int | None) -> int:
     return abs(hash(symbol)) % (2**31)
 
 
+def _current_spot(symbol: str, instrument: Instrument, seed: int | None) -> float:
+    """The same "current" simulated spot ``generate_option_chain`` reports
+    for ``symbol`` — seeded off the symbol alone (see its docstring there)
+    so every caller in a given process run agrees on "now," including
+    ``daily_series`` below, which needs its walk's endpoint to land on
+    this same value rather than wherever an independent random walk
+    happens to drift.
+    """
+    spot_rng = np.random.default_rng(_seed_for(symbol, seed))
+    return instrument.base_spot * (1 + spot_rng.normal(0, 0.004))
+
+
 def generate_option_chain(
     symbol: str,
     expiry: date | None = None,
@@ -156,8 +169,7 @@ def generate_option_chain(
     # Spot is a property of the underlying, not of which expiry's chain
     # you're viewing — seed it off the symbol alone so it stays identical
     # across expiry selections, same as a real quote would.
-    spot_rng = np.random.default_rng(_seed_for(symbol, seed))
-    spot = spot_override if spot_override is not None else instrument.base_spot * (1 + spot_rng.normal(0, 0.004))
+    spot = spot_override if spot_override is not None else _current_spot(symbol, instrument, seed)
 
     # OI/premium noise, in contrast, genuinely differs by expiry in real
     # markets (a weekly build-up looks nothing like a far-dated monthly's) —
@@ -300,6 +312,60 @@ def futures_minute_series(
     instrument = get_instrument(symbol)
     session_date = session_date or date.today()
     return _simulate_minute_path(instrument, session_date, minutes, symbol + "-futures-minute", seed)
+
+
+def daily_series(
+    symbol: str, days: int = 500, seed: int | None = None
+) -> list[tuple[date, float, float, float, float, int]]:
+    """Simulated daily OHLC path (date, open, high, low, close, volume) —
+    mock-mode counterpart to ``kite_feed.daily_series``, feeding the DSRD
+    support/resistance + RSI panel when running without a Kite login. A
+    plain GBM random walk with weekends skipped — clearly labeled
+    "simulated" wherever it's shown, never meant to resemble real history.
+
+    The walk's *last* close is rescaled to land exactly on
+    ``_current_spot`` — the same "now" ``generate_option_chain`` reports
+    for this symbol. Without that, this series and the option chain shown
+    alongside it are two independent random walks that can drift apart
+    over hundreds of simulated days, producing support/resistance levels
+    that don't even bracket the "current" price the rest of the page
+    shows (support/resistance above spot on both sides, say) — confusing
+    on its own, and actively misleading for a panel about where to sell.
+    """
+    instrument = get_instrument(symbol)
+    rng = np.random.default_rng(_seed_for(symbol + "-daily", seed))
+    sigma = instrument.base_iv
+    dt = 1.0 / 252
+
+    closes = [instrument.base_spot]
+    for _ in range(days - 1):
+        shock = rng.normal(-0.5 * sigma * sigma * dt, sigma * math.sqrt(dt))
+        closes.append(closes[-1] * math.exp(shock))
+
+    target_spot = _current_spot(symbol, instrument, None)
+    scale = target_spot / closes[-1]
+    closes = [c * scale for c in closes]
+
+    trading_days: list[date] = []
+    cursor = date.today()
+    while len(trading_days) < days:
+        if cursor.weekday() < 5:  # Mon-Fri
+            trading_days.append(cursor)
+        cursor -= timedelta(days=1)
+    trading_days.reverse()
+
+    bars = []
+    prev_close = closes[0]
+    intraday_vol = sigma * math.sqrt(dt) * 0.6
+    for day, close in zip(trading_days, closes):
+        open_ = prev_close
+        high = max(open_, close) * (1 + abs(rng.normal(0, intraday_vol)))
+        low = min(open_, close) * (1 - abs(rng.normal(0, intraday_vol)))
+        volume = int(rng.uniform(0.7, 1.3) * 5_000_000)
+        bars.append((day, round(open_, 2), round(high, 2), round(low, 2), round(close, 2), volume))
+        prev_close = close
+
+    return bars
 
 
 def futures_snapshot(symbol: str) -> dict:

@@ -181,6 +181,8 @@ def _render(symbol: str, expiry, live: bool) -> None:
     )
     st.markdown("\n\n".join(lines))
 
+    _dsrd_panel(symbol, chain, live)
+
     # --- MultiStrike Open Interest ---------------------------------------
     st.subheader("MultiStrike Open Interest")
     oi_fig = go.Figure()
@@ -243,3 +245,123 @@ def _render(symbol: str, expiry, live: bool) -> None:
         hide_index=True,
         height=520,
     )
+
+
+# --- DSRD: Direction / Support / Resistance / Delta -----------------------
+# Weekly-expiry credit-spread checklist, scoped to NIFTY/SENSEX per user
+# request — the delta band (0.07-0.15) and Strategy Matrix were given
+# specifically for weekly index options, not stocks/commodities with
+# different expiry cadences. See app.analytics.dsrd for the full framework
+# and app.analytics.technicals for the underlying indicator math.
+DSRD_SYMBOLS = {"NIFTY", "SENSEX"}
+DSRD_HISTORY_DAYS = 500  # ~2 years of daily bars — enough for the monthly S/R lookback
+
+
+def _dsrd_panel(symbol: str, chain, live: bool) -> None:
+    if symbol not in DSRD_SYMBOLS:
+        return
+
+    from app.analytics import dsrd
+    from app.analytics import technicals as tech
+    from app.data.feed import daily_series
+
+    st.subheader("Options Sell Strategy (DSRD)")
+    st.caption(
+        "Direction / Support / Resistance / Delta — a weekly-expiry credit-spread checklist built from "
+        "dual-timeframe RSI, multi-timeframe support/resistance, Bollinger squeeze, RSI divergence, and "
+        "candlestick reversal patterns at a level. Every reading below traces to a specific indicator or "
+        "the live option chain — the conviction score is a documented point system (see module docstring), "
+        "not a validated predictive model."
+    )
+    if not live:
+        st.warning(
+            "Running on simulated data (no Kite login) — every number below is a random-walk stand-in, "
+            "not real price history. Log in to Kite (see the panel above) for real support/resistance "
+            "levels and RSI readings before acting on this."
+        )
+
+    raw_bars, err = safe_call(daily_series, symbol, DSRD_HISTORY_DAYS)
+    if err or not raw_bars:
+        st.error(err or f"Couldn't load daily history for {symbol}.")
+        return
+
+    bars = [tech.DailyBar(d, o, h, l, c, v) for d, o, h, l, c, v in raw_bars]
+    daily_closes = [b.close for b in bars]
+    weekly_closes = [b.close for b in tech.resample_weekly(bars)]
+
+    direction = dsrd.direction_signal(daily_closes, weekly_closes)
+    sr = dsrd.multi_timeframe_support_resistance(bars, chain.spot, direction.bias)
+    signals = dsrd.confirmation_signals(bars, sr["daily"].support, sr["daily"].resistance)
+    conviction = dsrd.score_conviction(direction, signals)
+    # Weekly S/R for strike alignment — matches the trade's own expiry horizon.
+    strikes = dsrd.select_sell_strikes(chain, sr["weekly"].support, sr["weekly"].resistance)
+    checklist = dsrd.build_checklist(direction, sr, strikes)
+
+    dcol1, dcol2, dcol3 = st.columns(3)
+    dcol1.metric("Weekly RSI(14)", fmt(direction.weekly_rsi) if direction.weekly_rsi is not None else "n/a", direction.weekly_zone)
+    dcol2.metric("Daily RSI(14)", fmt(direction.daily_rsi) if direction.daily_rsi is not None else "n/a", direction.daily_zone)
+    dcol3.metric(direction.condition, direction.strategy)
+
+    st.markdown("**Multi-timeframe support / resistance**")
+    sr_rows = [
+        {
+            "Timeframe": tf.capitalize(),
+            "Support": fmt(level.support),
+            "Resistance": fmt(level.resistance),
+            "Target": fmt(level.target) if level.target is not None else "—",
+        }
+        for tf, level in sr.items()
+    ]
+    st.dataframe(pd.DataFrame(sr_rows), hide_index=True, use_container_width=True)
+
+    tier_color = {"High": GREEN, "Moderate": AMBER, "Low": AMBER, "Avoid/Wait": RED}[conviction.tier]
+    st.markdown(
+        f"**Conviction:** <span style='color:{tier_color};font-weight:700'>{conviction.tier}</span> (score {conviction.score})",
+        unsafe_allow_html=True,
+    )
+    factor_rows = [
+        {"Factor": f.name, "Reading": f.reading, "Contribution": f.contribution, "Note": f.note}
+        for f in conviction.factors
+    ]
+    st.dataframe(pd.DataFrame(factor_rows), hide_index=True, use_container_width=True)
+
+    st.markdown("**Pre-trade checklist**")
+    checklist_rows = [
+        {"Step": c.step, "Question": c.question, "Reading": c.reading, "Pass": "✅" if c.passed else "❌"}
+        for c in checklist
+    ]
+    st.dataframe(pd.DataFrame(checklist_rows), hide_index=True, use_container_width=True)
+
+    st.markdown(f"**Sell-strike candidates** — short leg only, delta {dsrd.DELTA_LOW:.2f}–{dsrd.DELTA_HIGH:.2f}")
+    scol1, scol2 = st.columns(2)
+    with scol1:
+        st.caption("Calls to sell (resistance side — bear call spread's short leg)")
+        _render_strike_candidates(strikes["calls"])
+    with scol2:
+        st.caption("Puts to sell (support side — bull put spread's short leg)")
+        _render_strike_candidates(strikes["puts"])
+    st.caption(
+        "\"Aligned w/ S-R\" means the strike sits beyond the identified weekly support/resistance level — "
+        "the DSRD checklist's own \"right side of S/R\" test. The hedge/long leg that turns this into a "
+        "credit spread isn't picked here: its distance is a risk-sizing choice (tighter = less premium, "
+        "less risk) the source framework doesn't specify a rule for."
+    )
+
+
+def _render_strike_candidates(candidates) -> None:
+    if not candidates:
+        st.info("No strike in the target delta band.")
+        return
+    rows = [
+        {
+            "Strike": c.strike,
+            "Symbol": c.tradingsymbol or "—",
+            "LTP": fmt(c.ltp),
+            "Delta": fmt(c.delta, 3),
+            "PoP": f"{c.probability_of_profit * 100:.1f}%",
+            "Dist %": fmt(c.distance_pct),
+            "Aligned w/ S-R": "✅" if c.aligned_with_sr else "❌",
+        }
+        for c in candidates[:5]
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)

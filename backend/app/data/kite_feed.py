@@ -497,3 +497,45 @@ def futures_minute_series(
     return _fetch_minute_candles(
         kite, contract["instrument_token"], instrument, session_date, minutes, f"{symbol} futures"
     )
+
+
+def daily_series(symbol: str, days: int = 500) -> list[tuple[date, float, float, float, float, int]]:
+    """Real daily OHLC candles (date, open, high, low, close, volume) for
+    the underlying spot instrument, via Kite's Historical Data API — the
+    source data for multi-timeframe support/resistance and RSI (see
+    ``app.analytics.technicals`` / ``app.analytics.dsrd``). Deliberately
+    the cash index, not a futures contract, so these levels line up with
+    the option chain's own ``spot`` field. Index-only for now (raises for
+    a commodity instrument, whose "underlying" rolls between futures
+    contracts rather than being one continuous tradingsymbol).
+    """
+    if get_instrument(symbol).is_commodity:
+        raise KiteFeedError(f"daily_series doesn't support commodity instruments yet: {symbol}")
+
+    instrument = get_instrument(symbol)
+    kite = get_kite_client()
+
+    dump = _instrument_dump(instrument.kite_spot_exchange)
+    match = next((r for r in dump if r.get("tradingsymbol") == instrument.kite_spot_tradingsymbol), None)
+    if match is None:
+        raise KiteFeedError(
+            f"No underlying instrument found for {symbol} on {instrument.kite_spot_exchange}; "
+            f"verify Instrument.kite_spot_tradingsymbol."
+        )
+
+    to_date = datetime.combine(date.today(), datetime.min.time())
+    from_date = to_date - timedelta(days=int(days * 1.55) + 20)  # buffer for weekends/holidays
+
+    try:
+        candles = kite.historical_data(match["instrument_token"], from_date, to_date, interval="day")
+    except _KiteTransportError as exc:
+        raise KiteFeedError(f"Historical daily data request failed for {symbol}: {exc}") from exc
+
+    if not candles:
+        raise KiteFeedError(f"No historical daily data returned for {symbol}")
+
+    bars = [
+        (_as_date(c["date"]), float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"]), int(c.get("volume") or 0))
+        for c in candles
+    ]
+    return bars[-days:]

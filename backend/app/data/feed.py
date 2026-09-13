@@ -88,3 +88,13 @@ def futures_minute_series(
     Kite: real minute candles via the Historical Data API.
     """
     return _module().futures_minute_series(symbol, session_date=session_date, minutes=minutes)
+
+
+def daily_series(symbol: str, days: int = 500):
+    """Daily OHLC candles (date, open, high, low, close, volume) for the
+    underlying spot instrument — support/resistance and RSI's data source
+    (see ``app.analytics.dsrd``). Mock: a simulated GBM daily walk, clearly
+    labeled as such wherever shown. Kite: real daily candles via the
+    Historical Data API.
+    """
+    return _module().daily_series(symbol, days=days)

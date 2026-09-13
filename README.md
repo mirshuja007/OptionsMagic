@@ -260,6 +260,28 @@ strikes for a variant of the same strategy shape with a higher max profit
 at no worse max loss or margin, which you can apply with one click. This
 mode isn't in the Next.js frontend yet.
 
+Research Mode also has an **Options Sell Strategy (DSRD)** section, shown
+only for NIFTY/SENSEX (the weekly-expiry index-options case it's built
+for). DSRD = Direction / Support / Resistance / Delta: dual-timeframe RSI
+picks a bias off a documented 5-row strategy matrix ("Strong Bullish" ->
+sell a bull put credit spread, etc.), multi-timeframe (daily/weekly/monthly)
+swing-pivot support/resistance gives each timeframe's floor/ceiling and a
+directional target, and a delta-0.07-0.15 short strike is shortlisted from
+the live option chain and flagged for whether it clears the relevant
+weekly S/R level. A documented (not statistically validated) point system
+combines ADX trend strength, Bollinger squeeze/breakout, RSI divergence,
+and candlestick reversal patterns at a support/resistance level into a
+High/Moderate/Low/Avoid-Wait conviction tier, with every contributing
+factor shown alongside its raw reading. See `app.analytics.technicals`
+(RSI/Bollinger/ADX/pivots/divergence/candlesticks — all standard formulas)
+and `app.analytics.dsrd` (the framework itself) for the full account,
+including what it deliberately does *not* compute: the credit spread's
+hedge/long leg, whose distance is a risk-sizing choice the source material
+doesn't specify a rule for. Real support/resistance and RSI need daily
+history from Kite's Historical Data API (`app.data.kite_feed.daily_series`)
+— in mock mode this falls back to a simulated multi-year daily walk,
+captioned as such on the page so it's never mistaken for a real level.
+
 A third page, **Futures Monitor**, shows live NIFTY and SENSEX index-futures
 readings — current price, change vs. previous close, and the session's
 high/low range (`app.data.kite_feed.futures_snapshot` / `mock_feed`'s

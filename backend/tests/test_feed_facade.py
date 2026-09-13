@@ -95,3 +95,37 @@ def test_futures_minute_series_kite_provider_surfaces_auth_error(monkeypatch):
     with pytest.raises(KiteAuthError):
         feed.futures_minute_series("NIFTY")
     reset_kite_client()
+
+
+def test_daily_series_mock_provider_shape(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    bars = feed.daily_series("NIFTY", days=60)
+    assert len(bars) == 60
+    for d, o, h, l, c, v in bars:
+        assert l <= o <= h
+        assert l <= c <= h
+        assert v > 0
+    dates = [b[0] for b in bars]
+    assert dates == sorted(dates)
+
+
+def test_daily_series_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.daily_series("NIFTY")
+    reset_kite_client()
+
+
+def test_daily_series_mock_endpoint_matches_option_chain_spot(monkeypatch):
+    """Regression: daily_series and generate_option_chain used to be two
+    independent random walks that could drift apart over hundreds of
+    simulated days, producing support/resistance levels that don't even
+    bracket the "current" price the rest of the page shows.
+    """
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    chain = feed.generate_option_chain("NIFTY")
+    bars = feed.daily_series("NIFTY", days=500)
+    assert bars[-1][4] == pytest.approx(chain.spot)
