@@ -42,15 +42,15 @@ def render() -> None:
     if auto_refresh:
         _live_panel()
     else:
-        _render()
+        _render(in_fragment=False)
 
 
 @st.fragment(run_every=f"{POLL_SECONDS}s")
 def _live_panel() -> None:
-    _render()
+    _render(in_fragment=True)
 
 
-def _render() -> None:
+def _render(in_fragment: bool) -> None:
     from app.core.timezone import IST
     from app.data.feed import get_active_provider
 
@@ -61,13 +61,13 @@ def _render() -> None:
 
     from app.analytics import strangle_system as ss
 
-    states = {strategy.key: _strategy_card(strategy, now) for strategy in ss.STRATEGIES}
+    states = {strategy.key: _strategy_card(strategy, now, in_fragment) for strategy in ss.STRATEGIES}
 
     if all(states.get(key) == "live" for key in _OVERLAP_KEYS):
         _overlap_margin_note(live)
 
 
-def _strategy_card(strategy, now: datetime) -> str | None:
+def _strategy_card(strategy, now: datetime, in_fragment: bool) -> str | None:
     from app.analytics import strangle_system as ss
     from app.data.feed import available_expiries, generate_option_chain
     from app.data.instruments import get_instrument
@@ -110,15 +110,17 @@ def _strategy_card(strategy, now: datetime) -> str | None:
 
     leg_cols = st.columns(2)
     with leg_cols[0]:
-        _leg_widget(strategy, "CE", call_strike, call_row.call if call_row else None, now)
+        _leg_widget(strategy, "CE", call_strike, call_row.call if call_row else None, now, in_fragment)
     with leg_cols[1]:
-        _leg_widget(strategy, "PE", put_strike, put_row.put if put_row else None, now)
+        _leg_widget(strategy, "PE", put_strike, put_row.put if put_row else None, now, in_fragment)
 
     return state
 
 
-def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) -> None:
+def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime, in_fragment: bool) -> None:
     from app.analytics import strangle_system as ss
+
+    rerun_scope = "fragment" if in_fragment else "app"
 
     st.markdown(f"**{side_label} {fmt(strike, 0)}**")
     if leg is None:
@@ -128,7 +130,8 @@ def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) ->
 
     key_prefix = f"strangle_{strategy.key}_{side_label}_{now.date().isoformat()}"
     entered_key = f"{key_prefix}_entered"
-    entry_key = f"{key_prefix}_entry_premium"
+    entry_widget_key = f"{key_prefix}_entry_premium_input"
+    entry_value_key = f"{key_prefix}_entry_premium"
     reentered_key = f"{key_prefix}_reentered"
     closed_key = f"{key_prefix}_closed"
 
@@ -137,13 +140,24 @@ def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) ->
         return
 
     if not st.session_state.get(entered_key, False):
-        st.number_input("Your entry premium", min_value=0.0, value=float(leg.ltp), step=0.05, key=entry_key)
+        st.number_input("Your entry premium", min_value=0.0, value=float(leg.ltp), step=0.05, key=entry_widget_key)
         if st.button("Mark entered", key=f"{key_prefix}_enter_btn"):
+            # Copy into a plain (non-widget) key — the number_input above
+            # stops being instantiated forever after this point (this
+            # branch never runs again), and a widget-bound session_state
+            # entry is only reliably retained while its widget keeps being
+            # rendered. Switching between the fragment-scoped live-refresh
+            # path and the full-script static path (the "Live refresh"
+            # toggle) is exactly the kind of transition that can drop it —
+            # reproduced live: toggling refresh off after marking a leg
+            # entered raised "st.session_state has no key ...". A plain
+            # value under its own key has no such lifecycle tie.
+            st.session_state[entry_value_key] = st.session_state[entry_widget_key]
             st.session_state[entered_key] = True
-            st.rerun()
+            st.rerun(scope=rerun_scope)
         return
 
-    entry_premium = st.session_state[entry_key]
+    entry_premium = st.session_state[entry_value_key]
     status = ss.leg_status(entry_premium, leg.ltp, strategy.sl_pct)
     move_color = RED if status.pct_move >= 0 else GREEN
     st.markdown(
@@ -156,7 +170,7 @@ def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) ->
         st.success("🟢 Within stop")
         if st.button("Mark leg closed", key=f"{key_prefix}_close_btn"):
             st.session_state[closed_key] = True
-            st.rerun()
+            st.rerun(scope=rerun_scope)
         return
 
     st.error("🔴 SL hit — buy this leg back now")
@@ -164,7 +178,7 @@ def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) ->
         st.info("Re-entry already used — this leg is done for today.")
         if st.button("Mark leg closed", key=f"{key_prefix}_close_btn2"):
             st.session_state[closed_key] = True
-            st.rerun()
+            st.rerun(scope=rerun_scope)
         return
 
     if ss.re_entry_ready(entry_premium, leg.ltp):
@@ -175,12 +189,12 @@ def _leg_widget(strategy, side_label: str, strike: float, leg, now: datetime) ->
         )
         if st.button("Mark re-entered", key=f"{key_prefix}_reenter_btn"):
             st.session_state[reentered_key] = True
-            st.rerun()
+            st.rerun(scope=rerun_scope)
     else:
         st.caption(f"One re-entry allowed at your original entry price ({fmt(entry_premium)}) — not yet reached.")
         if st.button("Skip re-entry, leg done", key=f"{key_prefix}_skip_btn"):
             st.session_state[closed_key] = True
-            st.rerun()
+            st.rerun(scope=rerun_scope)
 
 
 def _overlap_margin_note(live: bool) -> None:
