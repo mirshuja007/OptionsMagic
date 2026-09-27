@@ -26,6 +26,7 @@ __all__ = [
     "futures_minute_series",
     "futures_snapshot",
     "generate_minute_series",
+    "minute_ohlc_series",
     "generate_option_chain",
     "next_weekly_expiry",
 ]
@@ -293,7 +294,39 @@ def generate_minute_series(
     """
     instrument = get_instrument(symbol)
     session_date = session_date or date.today()
-    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-minute", seed)
+    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-minute-" + session_date.isoformat(), seed)
+
+
+def minute_ohlc_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+    seed: int | None = None,
+) -> list[tuple[datetime, float, float, float, float, int]]:
+    """Simulated minute-by-minute (open, high, low, close, volume) path —
+    mock-mode counterpart to ``kite_feed.minute_ohlc_series``, feeding the
+    Opening Volume Breakout system's opening-candle trigger levels.
+    Reuses ``generate_minute_series``'s own close-price path (same seed
+    key, so the two agree on "close") and adds a small synthetic intrabar
+    wick around each minute's open-to-close move for a plausible high/low
+    — ``generate_minute_series`` alone only has closes, not true
+    per-minute extremes.
+    """
+    instrument = get_instrument(symbol)
+    session_date = session_date or date.today()
+    rng = np.random.default_rng(_seed_for(symbol + "-minute-ohlc-wick-" + session_date.isoformat(), seed))
+    closes_series = _simulate_minute_path(instrument, session_date, minutes, symbol + "-minute-" + session_date.isoformat(), seed)
+
+    intraday_vol = instrument.base_iv * math.sqrt(1.0 / (252 * 375)) * 0.6
+    bars = []
+    prev_close = instrument.base_spot
+    for ts, close, volume in closes_series:
+        open_ = prev_close
+        high = max(open_, close) * (1 + abs(rng.normal(0, intraday_vol)))
+        low = min(open_, close) * (1 - abs(rng.normal(0, intraday_vol)))
+        bars.append((ts, round(open_, 2), round(high, 2), round(low, 2), round(close, 2), volume))
+        prev_close = close
+    return bars
 
 
 def futures_minute_series(
@@ -311,7 +344,7 @@ def futures_minute_series(
     """
     instrument = get_instrument(symbol)
     session_date = session_date or date.today()
-    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-futures-minute", seed)
+    return _simulate_minute_path(instrument, session_date, minutes, symbol + "-futures-minute-" + session_date.isoformat(), seed)
 
 
 def daily_series(

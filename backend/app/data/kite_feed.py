@@ -396,17 +396,16 @@ def generate_option_chain(
     )
 
 
-def _fetch_minute_candles(
+def _fetch_minute_history(
     kite,
     token: int,
     instrument: Instrument,
     session_date: date,
-    minutes: int,
     label: str,
-) -> list[tuple[datetime, float, int]]:
-    """Shared Historical Data API fetch, used by both ``generate_minute_series``
-    (underlying) and ``futures_minute_series`` (futures contract) — same
-    "cap an in-progress today at now" handling either way.
+) -> list[dict]:
+    """Shared Historical Data API fetch (interval="minute") with the
+    "cap an in-progress today at now" handling — the raw Kite candle
+    dicts, before either close-only or full-OHLC extraction.
     """
     start = datetime.combine(session_date, instrument.session_start)
     end = datetime.combine(session_date, instrument.session_end)
@@ -442,21 +441,50 @@ def _fetch_minute_candles(
     if not candles:
         raise KiteFeedError(f"No historical minute data returned for {label} on {session_date}")
 
+    return candles
+
+
+def _fetch_minute_candles(
+    kite,
+    token: int,
+    instrument: Instrument,
+    session_date: date,
+    minutes: int,
+    label: str,
+) -> list[tuple[datetime, float, int]]:
+    """Shared Historical Data API fetch, used by both ``generate_minute_series``
+    (underlying) and ``futures_minute_series`` (futures contract) — same
+    "cap an in-progress today at now" handling either way.
+    """
+    candles = _fetch_minute_history(kite, token, instrument, session_date, label)
     return [(c["date"].replace(tzinfo=None), float(c["close"]), int(c.get("volume") or 0)) for c in candles[:minutes]]
 
 
-def generate_minute_series(
-    symbol: str,
-    session_date: date | None = None,
-    minutes: int = 375,
-) -> list[tuple[datetime, float, int]]:
-    """Real minute-by-minute (underlying close, volume) for a past session,
-    via Kite's Historical Data API (a separate paid add-on — see README).
+def _fetch_minute_ohlc_candles(
+    kite,
+    token: int,
+    instrument: Instrument,
+    session_date: date,
+    minutes: int,
+    label: str,
+) -> list[tuple[datetime, float, float, float, float, int]]:
+    """Same fetch as ``_fetch_minute_candles`` but keeping the full OHLC per
+    minute bar (used by ``minute_ohlc_series`` — the Opening Volume
+    Breakout system needs the opening 5-minute candle's real high/low, not
+    just its closing prices).
     """
-    instrument = get_instrument(symbol)
-    kite = get_kite_client()
-    session_date = session_date or date.today()
+    candles = _fetch_minute_history(kite, token, instrument, session_date, label)
+    return [
+        (c["date"].replace(tzinfo=None), float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"]), int(c.get("volume") or 0))
+        for c in candles[:minutes]
+    ]
 
+
+def _underlying_instrument_token(instrument: Instrument, session_date: date) -> int:
+    """Resolve the Kite instrument_token for ``instrument``'s underlying —
+    shared by generate_minute_series and minute_ohlc_series, both of which
+    track the underlying (not a futures contract).
+    """
     if instrument.is_commodity:
         # No single static underlying instrument — use whichever futures
         # contract was front-month as of session_date.
@@ -472,11 +500,44 @@ def generate_minute_series(
 
     if match is None:
         raise KiteFeedError(
-            f"No underlying instrument found for {symbol} on {instrument.kite_spot_exchange}; "
+            f"No underlying instrument found for {instrument.symbol} on {instrument.kite_spot_exchange}; "
             f"verify Instrument.kite_underlying_name / kite_spot_tradingsymbol."
         )
+    return match["instrument_token"]
 
-    return _fetch_minute_candles(kite, match["instrument_token"], instrument, session_date, minutes, symbol)
+
+def generate_minute_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+) -> list[tuple[datetime, float, int]]:
+    """Real minute-by-minute (underlying close, volume) for a past session,
+    via Kite's Historical Data API (a separate paid add-on — see README).
+    """
+    instrument = get_instrument(symbol)
+    kite = get_kite_client()
+    session_date = session_date or date.today()
+    token = _underlying_instrument_token(instrument, session_date)
+    return _fetch_minute_candles(kite, token, instrument, session_date, minutes, symbol)
+
+
+def minute_ohlc_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+) -> list[tuple[datetime, float, float, float, float, int]]:
+    """Real minute-by-minute (open, high, low, close, volume) for the
+    underlying, via Kite's Historical Data API — same underlying
+    resolution as ``generate_minute_series``, but keeping the full OHLC
+    per bar instead of just the close. Needed for the Opening Volume
+    Breakout system's opening 5-minute candle, whose trigger levels are
+    the candle's real high and low, not derivable from close prices alone.
+    """
+    instrument = get_instrument(symbol)
+    kite = get_kite_client()
+    session_date = session_date or date.today()
+    token = _underlying_instrument_token(instrument, session_date)
+    return _fetch_minute_ohlc_candles(kite, token, instrument, session_date, minutes, symbol)
 
 
 def futures_minute_series(

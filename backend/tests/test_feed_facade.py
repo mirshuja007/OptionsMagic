@@ -129,3 +129,39 @@ def test_daily_series_mock_endpoint_matches_option_chain_spot(monkeypatch):
     chain = feed.generate_option_chain("NIFTY")
     bars = feed.daily_series("NIFTY", days=500)
     assert bars[-1][4] == pytest.approx(chain.spot)
+
+
+def test_minute_ohlc_series_mock_provider_shape(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    bars = feed.minute_ohlc_series("NIFTY", minutes=15)
+    assert len(bars) == 15
+    for _, o, h, l, c, v in bars:
+        assert l <= o <= h
+        assert l <= c <= h
+        assert v >= 0
+
+
+def test_minute_ohlc_series_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.minute_ohlc_series("NIFTY")
+    reset_kite_client()
+
+
+def test_minute_ohlc_series_mock_differs_across_session_dates(monkeypatch):
+    """Regression: the mock minute-path seed used to depend only on
+    symbol, not session_date, so any two different days for the same
+    symbol simulated an IDENTICAL path — e.g. Opening Volume Breakout's
+    "last 3 days' opening volume" always showed the same number 3 times.
+    """
+    from datetime import date, timedelta
+
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    bars_today = feed.minute_ohlc_series("NIFTY", session_date=today, minutes=5)
+    bars_yesterday = feed.minute_ohlc_series("NIFTY", session_date=yesterday, minutes=5)
+    assert [b[4] for b in bars_today] != [b[4] for b in bars_yesterday]

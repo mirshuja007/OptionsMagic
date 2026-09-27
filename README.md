@@ -331,12 +331,31 @@ between D5HJ and A5X could never happen under that reading. Told about the
 conflict, the call was to keep the stated overlap real over the stated DTE
 numbers for just those two.
 
+A fifth page, **Opening Volume Breakout**, is System 1 from the same
+webinar deck — trade only when the first 5-minute candle (9:15-9:20)
+beats each of the last 3 days' opening-candle volumes individually, then
+trade the break of its high or low, gated by a market-wide (NIFTY)
+opening-bias filter and capped at 2 completed trades per symbol per day.
+Covers NIFTY plus a default liquid F&O stock watchlist (RELIANCE,
+HDFCBANK, ICICIBANK, TCS, INFY, SBIN, AXISBANK, KOTAKBANK, LT,
+BHARTIARTL). Two more confirmed-not-assumed calls, in
+`app.analytics.opening_volume_breakout`'s module docstring: the deck
+defines the bias filter only for "below -0.4%" and "positive" opening
+moves, leaving the -0.4%-to-0% band undefined — resolved as folding into
+the "positive" (both-directions) zone — and the 2-trades/day limit applies
+per symbol, not across the whole watchlist combined. Needed a real
+per-minute OHLC series (not just closes) for the opening candle's actual
+high/low, so `app.data.kite_feed`/`mock_feed`/`feed` gained
+`minute_ohlc_series` alongside the existing close-only
+`generate_minute_series`.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
 streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
 streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see module docstring for the name)
 streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
+streamlit_pages/opening_volume_breakout.py  Opening Volume Breakout (System 1 paper-tracker)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

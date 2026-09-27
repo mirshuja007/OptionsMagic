@@ -98,3 +98,17 @@ def daily_series(symbol: str, days: int = 500):
     Historical Data API.
     """
     return _module().daily_series(symbol, days=days)
+
+
+def minute_ohlc_series(
+    symbol: str,
+    session_date: date | None = None,
+    minutes: int = 375,
+):
+    """Minute-by-minute (open, high, low, close, volume) for the underlying
+    — the Opening Volume Breakout system's data source (see
+    ``app.analytics.opening_volume_breakout``), which needs the opening
+    5-minute candle's real high/low. Mock: simulated with a synthetic
+    intrabar wick. Kite: real minute candles via the Historical Data API.
+    """
+    return _module().minute_ohlc_series(symbol, session_date=session_date, minutes=minutes)

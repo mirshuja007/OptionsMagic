@@ -737,3 +737,44 @@ def test_daily_series_raises_when_no_candles_returned(monkeypatch):
 
     with pytest.raises(KiteFeedError):
         kite_feed.daily_series("NIFTY")
+
+
+def test_minute_ohlc_series_end_to_end(monkeypatch):
+    session_date = date(2026, 8, 17)
+    candles = [
+        {
+            "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i),
+            "open": 24800.0 + i,
+            "high": 24805.0 + i,
+            "low": 24795.0 + i,
+            "close": 24802.0 + i,
+            "volume": 1000 + i,
+        }
+        for i in range(5)
+    ]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    bars = kite_feed.minute_ohlc_series("NIFTY", session_date=session_date, minutes=5)
+
+    assert len(bars) == 5
+    ts, o, h, l, c, v = bars[0]
+    assert (o, h, l, c, v) == (24800.0, 24805.0, 24795.0, 24802.0, 1000)
+    assert ts.tzinfo is None
+
+
+def test_minute_ohlc_series_defaults_volume_to_zero_when_absent(monkeypatch):
+    session_date = date(2026, 8, 17)
+    candles = [
+        {
+            "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15),
+            "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5,
+        }
+    ]
+    fake = FakeKite(nfo_rows=[], spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    bars = kite_feed.minute_ohlc_series("NIFTY", session_date=session_date, minutes=1)
+    assert bars[0][5] == 0
