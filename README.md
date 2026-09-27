@@ -304,11 +304,30 @@ a per-stock mechanism for F&O-eligible stocks only — so this is a better
 *index-direction* gauge, just not itself a CAS-specific reading. See
 `streamlit_pages/cas.py`'s module docstring for the full account.
 
+A fourth page, **Strangle Windows**, is a live paper-tracking dashboard for
+the "2 Hour Trading Strategy" from a separate rule-based-trading webinar
+(Darshan Rathod / Multyfi) — 4 fixed-window NIFTY/SENSEX short strangles
+(NIFTY D1111 09:30-10:30 OTM2, NIFTY D5HJ 13:30-14:30 ATM, SENSEX A5X
+13:30-14:30 ATM, SENSEX A6X 14:30-15:28 ATM), each with an independent
+per-leg % stop-loss and one allowed re-entry. Every ambiguous rule in the
+source material (what "SL 60%" is a percentage *of*, what "re-entry at
+cost" means as an actual order, whether "every weekday" or the DTE 0-2
+gate governs when a strategy actually fires) was asked about explicitly
+and confirmed rather than assumed — see `app.analytics.strangle_system`'s
+module docstring for the full account of each. This page resolves today's
+DTE eligibility and strikes and shows live premiums, but places no
+orders and runs no backtest: you mark your own fills, and it tracks each
+leg's stop and re-entry from there. All four legs are naked short options
+(no hedge leg, no portfolio-level stop) — the source system's own explicit,
+accepted risk, surfaced with a warning banner on the page rather than
+softened.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
 streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
 streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see module docstring for the name)
+streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

@@ -56,7 +56,9 @@ if provider != "kite":
     st.sidebar.caption("Set MARKET_DATA_PROVIDER=kite (+ KITE_API_KEY/KITE_ACCESS_TOKEN) in Secrets for live data.")
 
 page = st.sidebar.radio(
-    "Navigate", ["Research Mode", "Strategy Command Mode", "Futures Monitor"], label_visibility="collapsed"
+    "Navigate",
+    ["Research Mode", "Strategy Command Mode", "Futures Monitor", "Strangle Windows"],
+    label_visibility="collapsed",
 )
 
 if page == "Research Mode":
@@ -67,7 +69,11 @@ elif page == "Strategy Command Mode":
     from streamlit_pages.strategy import render as render_strategy
 
     render_strategy()
-else:
+elif page == "Futures Monitor":
     from streamlit_pages.cas import render as render_futures
 
     render_futures()
+else:
+    from streamlit_pages.strangle_system import render as render_strangle
+
+    render_strangle()
