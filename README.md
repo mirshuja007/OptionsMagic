@@ -322,6 +322,15 @@ leg's stop and re-entry from there. All four legs are naked short options
 accepted risk, surfaced with a warning banner on the page rather than
 softened.
 
+D5HJ and A5X deliberately have **no DTE gate** (D1111 and A6X keep theirs).
+Checked against the real, current NSE/BSE weekly expiry calendar (NIFTY
+Tuesday, SENSEX Thursday), strict DTE 0-2/0-1 gating on all four would make
+NIFTY's eligible days (Fri/Mon/Tue) and SENSEX's (Wed/Thu) structurally
+disjoint — the source material's own claimed 1:30-2:30 daily overlap
+between D5HJ and A5X could never happen under that reading. Told about the
+conflict, the call was to keep the stated overlap real over the stated DTE
+numbers for just those two.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

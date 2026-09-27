@@ -7,8 +7,8 @@ Four independent short strangles, three fixed clock windows, every leg
 managed independently:
 
   NIFTY D1111   09:30-10:30   OTM2 strikes   SL 60%/leg   DTE 0,1,2
-  NIFTY D5HJ    13:30-14:30   ATM strikes    SL 60%/leg   DTE 0,1,2
-  SENSEX A5X    13:30-14:30   ATM strikes    SL 35%/leg   DTE 0,1
+  NIFTY D5HJ    13:30-14:30   ATM strikes    SL 60%/leg   no DTE gate (*)
+  SENSEX A5X    13:30-14:30   ATM strikes    SL 35%/leg   no DTE gate (*)
   SENSEX A6X    14:30-15:28   ATM strikes    SL 35%/leg   DTE 0,1
 
 Confirmed interpretations (not verbatim in the source slides — each was
@@ -17,13 +17,24 @@ asked about explicitly rather than assumed):
   * "1x re-entry at cost" = a fresh sell of the SAME strike, but only at
     the ORIGINAL entry premium (a limit re-sell, not "sell now at
     whatever the market is").
-  * "DTE 0,1,2" / "every weekday" = DTE gates whether a strategy trades at
-    all; it is not a literal promise of a trade firing every calendar
-    weekday. NIFTY's single Tuesday weekly expiry means D1111/D5HJ only
-    end up eligible on Fri/Mon/Tue of a given week; SENSEX's Thursday
-    expiry means A5X/A6X only on Wed/Thu. "Every weekday" in the source
-    material reads as "this system runs continuously across the week,"
-    not a guarantee every strategy fires every day.
+  * "DTE 0,1,2" for D1111 and "DTE 0,1" for A6X gate whether those two
+    strategies trade at all on a given day — unchanged from the source
+    slides.
+
+(*) D5HJ and A5X's DTE gate was deliberately removed — not a transcription
+of the source slides. The slides state DTE 0,1,2 (NIFTY) / 0,1 (SENSEX)
+for every strategy AND separately describe a routine 1:30-2:30 overlap
+between D5HJ and A5X every week. Checked against the actual current NSE/
+BSE weekly expiry calendar (NIFTY Tuesday, SENSEX Thursday, unchanged
+since Sep 2025 — verified live, not assumed): under strict DTE 0-2/0-1
+gating, NIFTY's eligible days (Fri/Mon/Tue) and SENSEX's (Wed/Thu) never
+share a calendar day, so that overlap could never actually happen — a
+genuine inconsistency in the source material, not a bug in this
+calculation. Told about this, the call was to keep the stated overlap
+real rather than the stated DTE numbers: D5HJ and A5X now run every
+trading day regardless of DTE, so their shared 1:30-2:30 window overlaps
+daily as the source material describes. D1111 and A6X don't participate
+in that overlap and keep their original, unmodified DTE gates.
 
 What this module deliberately is NOT: a backtester (that needs historical
 per-strike option premiums, a separate, heavier data build not done here),
@@ -55,15 +66,22 @@ class StrategyDef:
     window_end: time
     strike_rule: StrikeRule
     sl_pct: float  # e.g. 0.60 for a 60% stop
-    dte_allowed: frozenset[int]
+    dte_allowed: frozenset[int] | None  # None = no DTE gate, eligible every trading day
 
 
 STRATEGIES: list[StrategyDef] = [
     StrategyDef("nifty_d1111", "NIFTY D1111", "NIFTY", time(9, 30), time(10, 30), "OTM2", 0.60, frozenset({0, 1, 2})),
-    StrategyDef("nifty_d5hj", "NIFTY D5HJ", "NIFTY", time(13, 30), time(14, 30), "ATM", 0.60, frozenset({0, 1, 2})),
-    StrategyDef("sensex_a5x", "SENSEX A5X", "SENSEX", time(13, 30), time(14, 30), "ATM", 0.35, frozenset({0, 1})),
+    StrategyDef("nifty_d5hj", "NIFTY D5HJ", "NIFTY", time(13, 30), time(14, 30), "ATM", 0.60, None),
+    StrategyDef("sensex_a5x", "SENSEX A5X", "SENSEX", time(13, 30), time(14, 30), "ATM", 0.35, None),
     StrategyDef("sensex_a6x", "SENSEX A6X", "SENSEX", time(14, 30), time(15, 28), "ATM", 0.35, frozenset({0, 1})),
 ]
+
+
+def is_dte_eligible(strategy: StrategyDef, dte: int) -> bool:
+    """Whether ``strategy`` trades at all on a day with this DTE. ``None``
+    (D5HJ, A5X — see module docstring) means no DTE gate at all.
+    """
+    return strategy.dte_allowed is None or dte in strategy.dte_allowed
 
 
 def trading_days_between(start: date, end: date) -> int:

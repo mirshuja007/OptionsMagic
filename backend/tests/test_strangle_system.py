@@ -49,7 +49,7 @@ def test_dte_for_zero_on_expiry_day_itself():
 # ---------------------------------------------------------------------------
 
 
-def test_strategies_match_the_source_webinar_exactly():
+def test_strategies_configuration():
     by_key = {s.key: s for s in ss.STRATEGIES}
     assert len(by_key) == 4
 
@@ -57,12 +57,16 @@ def test_strategies_match_the_source_webinar_exactly():
     assert (d1111.symbol, d1111.strike_rule, d1111.sl_pct, d1111.dte_allowed) == ("NIFTY", "OTM2", 0.60, frozenset({0, 1, 2}))
     assert (d1111.window_start, d1111.window_end) == (time(9, 30), time(10, 30))
 
+    # D5HJ and A5X have no DTE gate at all — see module docstring: strict
+    # DTE 0-2/0-1 gating would make their eligible days (Fri/Mon/Tue vs.
+    # Wed/Thu) structurally disjoint, so the source material's own claimed
+    # daily overlap between them could never happen under that gate.
     d5hj = by_key["nifty_d5hj"]
-    assert (d5hj.symbol, d5hj.strike_rule, d5hj.sl_pct, d5hj.dte_allowed) == ("NIFTY", "ATM", 0.60, frozenset({0, 1, 2}))
+    assert (d5hj.symbol, d5hj.strike_rule, d5hj.sl_pct, d5hj.dte_allowed) == ("NIFTY", "ATM", 0.60, None)
     assert (d5hj.window_start, d5hj.window_end) == (time(13, 30), time(14, 30))
 
     a5x = by_key["sensex_a5x"]
-    assert (a5x.symbol, a5x.strike_rule, a5x.sl_pct, a5x.dte_allowed) == ("SENSEX", "ATM", 0.35, frozenset({0, 1}))
+    assert (a5x.symbol, a5x.strike_rule, a5x.sl_pct, a5x.dte_allowed) == ("SENSEX", "ATM", 0.35, None)
     assert (a5x.window_start, a5x.window_end) == (time(13, 30), time(14, 30))
 
     a6x = by_key["sensex_a6x"]
@@ -75,6 +79,36 @@ def test_nifty_and_sensex_overlap_between_1330_and_1430():
     a5x = next(s for s in ss.STRATEGIES if s.key == "sensex_a5x")
     assert d5hj.window_start == a5x.window_start
     assert d5hj.window_end == a5x.window_end
+
+
+# ---------------------------------------------------------------------------
+# is_dte_eligible
+# ---------------------------------------------------------------------------
+
+
+def test_is_dte_eligible_with_a_dte_gate():
+    d1111 = next(s for s in ss.STRATEGIES if s.key == "nifty_d1111")
+    assert ss.is_dte_eligible(d1111, 0) is True
+    assert ss.is_dte_eligible(d1111, 2) is True
+    assert ss.is_dte_eligible(d1111, 3) is False
+
+
+def test_is_dte_eligible_with_no_gate_is_always_true():
+    d5hj = next(s for s in ss.STRATEGIES if s.key == "nifty_d5hj")
+    assert ss.is_dte_eligible(d5hj, 0) is True
+    assert ss.is_dte_eligible(d5hj, 6) is True
+    assert ss.is_dte_eligible(d5hj, -1) is True
+
+
+def test_overlapping_strategies_are_simultaneously_eligible_every_trading_day():
+    # The whole point of removing the DTE gate on D5HJ/A5X: on ANY day's
+    # DTE reading for either index, both must be eligible so the shared
+    # 1:30-2:30 window actually overlaps, as the source material states.
+    d5hj = next(s for s in ss.STRATEGIES if s.key == "nifty_d5hj")
+    a5x = next(s for s in ss.STRATEGIES if s.key == "sensex_a5x")
+    for dte in range(0, 7):
+        assert ss.is_dte_eligible(d5hj, dte) is True
+        assert ss.is_dte_eligible(a5x, dte) is True
 
 
 # ---------------------------------------------------------------------------

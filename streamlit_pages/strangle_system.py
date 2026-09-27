@@ -80,13 +80,16 @@ def _strategy_card(strategy, now: datetime) -> str | None:
         return None
     expiry = expiries[0]
     dte = ss.dte_for(now.date(), expiry)
-    eligible = dte in strategy.dte_allowed
+    eligible = ss.is_dte_eligible(strategy, dte)
 
     meta_cols = st.columns(4)
     meta_cols[0].metric("Window", f"{strategy.window_start.strftime('%H:%M')}–{strategy.window_end.strftime('%H:%M')}")
     meta_cols[1].metric("Strikes", strategy.strike_rule)
     meta_cols[2].metric("SL / leg", f"{strategy.sl_pct * 100:.0f}%")
-    meta_cols[3].metric("DTE today", f"{dte}", "eligible" if eligible else f"needs {sorted(strategy.dte_allowed)}")
+    if strategy.dte_allowed is None:
+        meta_cols[3].metric("DTE today", f"{dte}", "no DTE gate")
+    else:
+        meta_cols[3].metric("DTE today", f"{dte}", "eligible" if eligible else f"needs {sorted(strategy.dte_allowed)}")
 
     if not eligible:
         st.info(f"Not eligible today — DTE is {dte}; this strategy only trades on DTE {sorted(strategy.dte_allowed)}.")
