@@ -31,14 +31,20 @@ def render() -> None:
 
     from app.analytics import greeks_scenario as gs
     from app.core.black_scholes import OptionType
-    from app.data.feed import generate_option_chain
+    from app.data.feed import available_expiries, generate_option_chain
     from app.data.instruments import ALL_INSTRUMENTS
 
     symbols = sorted(ALL_INSTRUMENTS, key=lambda s: (not ALL_INSTRUMENTS[s].is_index, s))
     symbol = st.selectbox("Symbol", symbols, index=symbols.index("NIFTY") if "NIFTY" in symbols else 0)
     instrument = ALL_INSTRUMENTS[symbol]
 
-    chain, err = safe_call(generate_option_chain, symbol)
+    expiries, expiry_err = safe_call(available_expiries, symbol)
+    if expiry_err or not expiries:
+        st.error(expiry_err or "No expiries available.")
+        return
+    expiry = st.selectbox("Expiry", expiries, format_func=lambda d: d.strftime("%a, %d %b %Y"))
+
+    chain, err = safe_call(generate_option_chain, symbol, expiry=expiry)
     if err or chain is None:
         st.error(err or "Couldn't load the option chain.")
         return
@@ -63,6 +69,11 @@ def render() -> None:
     )
 
     st.markdown("**Right now**")
+    dte_days = chain.time_to_expiry_years * 365.0
+    st.caption(
+        f"Expiry: {chain.expiry.strftime('%a, %d %b %Y')} · {dte_days:.1f} days to expiry · "
+        f"{instrument.expiry_cadence} cadence — pick a different one from the Expiry selector above."
+    )
     mcols = st.columns(4)
     mcols[0].metric("Spot", fmt(chain.spot))
     mcols[1].metric("Model premium", fmt(base.base_price))
