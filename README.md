@@ -349,6 +349,24 @@ high/low, so `app.data.kite_feed`/`mock_feed`/`feed` gained
 `minute_ohlc_series` alongside the existing close-only
 `generate_minute_series`.
 
+A sixth page, **Greeks Scenario Calculator**, is a what-if sizing aid rather
+than a tracker: pick a strike/side from any symbol's live chain, dial in a
+hypothetical index move plus a volatility regime (Calm/Normal/Panic), and
+see the modeled premium reaction, split into its spot-driven and
+vol-driven parts, plus the rupee P&L for a seller — at full size versus
+split across several tranches. Built in direct response to a real
+sudden-crash loss: a modest index move can produce an outsized premium
+spike because implied vol expands sharply alongside it, not just because
+of delta. There's no live India VIX feed wired into this platform, so the
+volatility-regime presets in `app.analytics.greeks_scenario` are explicit,
+documented rule-of-thumb IV-reaction points per 1% move (asymmetric by
+direction, since down moves spike IV harder than up moves cool it) —
+labeled as illustrative, not calibrated, and overridable by hand if you're
+watching VIX yourself. Repricing reuses the same shocked-spot/shocked-IV
+Black-Scholes technique `app.margin.span` already uses for margin scenario
+scanning, rather than a linear Taylor approximation, so the displayed
+spot/vol split sums exactly to the total premium change.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
@@ -356,6 +374,7 @@ streamlit_pages/strategy.py   Strategy Command Mode (constraint form + solver)
 streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see module docstring for the name)
 streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
 streamlit_pages/opening_volume_breakout.py  Opening Volume Breakout (System 1 paper-tracker)
+streamlit_pages/greeks_scenario.py  Greeks Scenario Calculator (Greeks + volatility what-if sizing aid)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

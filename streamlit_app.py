@@ -57,7 +57,10 @@ if provider != "kite":
 
 page = st.sidebar.radio(
     "Navigate",
-    ["Research Mode", "Strategy Command Mode", "Futures Monitor", "Strangle Windows", "Opening Volume Breakout"],
+    [
+        "Research Mode", "Strategy Command Mode", "Futures Monitor", "Strangle Windows",
+        "Opening Volume Breakout", "Greeks Scenario Calculator",
+    ],
     label_visibility="collapsed",
 )
 
@@ -77,7 +80,11 @@ elif page == "Strangle Windows":
     from streamlit_pages.strangle_system import render as render_strangle
 
     render_strangle()
-else:
+elif page == "Opening Volume Breakout":
     from streamlit_pages.opening_volume_breakout import render as render_ovb
 
     render_ovb()
+else:
+    from streamlit_pages.greeks_scenario import render as render_greeks_scenario
+
+    render_greeks_scenario()
