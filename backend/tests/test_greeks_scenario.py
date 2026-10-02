@@ -24,6 +24,34 @@ def test_panic_regime_reacts_harder_than_calm_on_a_down_move():
     assert panic > calm > 0
 
 
+def test_dte_reaction_multiplier_is_1x_at_the_7_day_reference():
+    assert gs.dte_reaction_multiplier(7.0) == pytest.approx(1.0)
+
+
+def test_dte_reaction_multiplier_grows_as_expiry_nears():
+    assert gs.dte_reaction_multiplier(1.0) > gs.dte_reaction_multiplier(3.0) > gs.dte_reaction_multiplier(7.0)
+
+
+def test_dte_reaction_multiplier_shrinks_for_far_dated_options():
+    assert gs.dte_reaction_multiplier(30.0) < gs.dte_reaction_multiplier(7.0)
+
+
+def test_dte_reaction_multiplier_is_clamped_both_ends():
+    assert gs.dte_reaction_multiplier(0.01) == pytest.approx(2.5)
+    assert gs.dte_reaction_multiplier(10_000.0) == pytest.approx(0.5)
+
+
+def test_iv_change_for_move_without_dte_is_unscaled():
+    assert gs.iv_change_for_move(-2.0, "Normal", dte_days=None) == gs.iv_change_for_move(-2.0, "Normal")
+
+
+def test_iv_change_for_move_with_dte_applies_the_multiplier():
+    base = gs.iv_change_for_move(-2.0, "Normal")
+    near_expiry = gs.iv_change_for_move(-2.0, "Normal", dte_days=1.0)
+    far_dated = gs.iv_change_for_move(-2.0, "Normal", dte_days=30.0)
+    assert near_expiry > base > far_dated > 0
+
+
 @pytest.mark.parametrize("option_type", [OptionType.CALL, OptionType.PUT])
 def test_reprice_scenario_no_change_reproduces_base_price(option_type):
     result = gs.reprice_scenario(

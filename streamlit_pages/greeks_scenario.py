@@ -95,13 +95,17 @@ def render() -> None:
     st.markdown("**Build your scenario**")
     regime = st.select_slider("Volatility regime", options=list(gs.VOL_REGIMES), value=gs.DEFAULT_REGIME)
     down_sens, up_sens = gs.VOL_REGIMES[regime]
+    dte_mult = gs.dte_reaction_multiplier(dte_days)
     st.caption(
-        f"\"{regime}\" rule of thumb: a 1% down move adds about {down_sens:.1f} IV points; "
-        f"a 1% up move changes IV by about {up_sens:+.1f} points (vol usually cools a little on rallies)."
+        f"\"{regime}\" rule of thumb at {dte_days:.1f} days to expiry: a 1% down move adds about "
+        f"{down_sens * dte_mult:.1f} IV points; a 1% up move changes IV by about {up_sens * dte_mult:+.1f} "
+        f"points (vol usually cools a little on rallies). Base preset {down_sens:.1f}/{up_sens:+.1f} pts, "
+        f"scaled {dte_mult:.2f}x for days-to-expiry — shorter-dated options' IV typically swings harder per "
+        "1% move than longer-dated ones."
     )
     move_pct = st.slider("Hypothetical index move (%)", min_value=-5.0, max_value=5.0, value=-1.0, step=0.25)
 
-    auto_iv_change = gs.iv_change_for_move(move_pct, regime)
+    auto_iv_change = gs.iv_change_for_move(move_pct, regime, dte_days=dte_days)
     override = st.checkbox("Override the IV change myself (e.g. you're watching VIX live)")
     iv_change = (
         st.number_input("IV change (percentage points)", value=float(round(auto_iv_change, 2)), step=0.1)
@@ -152,11 +156,11 @@ def render() -> None:
         st.success(f"Full size at once: this move would be worth {fmt_currency(pnl_full)} in your favor.")
 
     with st.expander("See the reaction across a range of moves"):
-        st.caption(f"Using the \"{regime}\" regime's IV reaction for every row below.")
+        st.caption(f"Using the \"{regime}\" regime's IV reaction, scaled for {dte_days:.1f} DTE, for every row below.")
         sweep_moves = [-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0]
         rows = []
         for m in sweep_moves:
-            iv_chg = gs.iv_change_for_move(m, regime)
+            iv_chg = gs.iv_change_for_move(m, regime, dte_days=dte_days)
             r = gs.reprice_scenario(
                 spot=chain.spot, strike=strike, t=chain.time_to_expiry_years, r=chain.risk_free_rate,
                 iv=leg.iv, option_type=option_type, move_pct=m, iv_change_points=iv_chg, q=q,

@@ -22,6 +22,19 @@ cool it (the "fear skew" every index options desk prices in). These are
 illustrative defaults for building intuition, not a calibrated model — the
 page lets the user override the IV change by hand if they have a better
 number (e.g. from watching India VIX themselves).
+
+Days-to-expiry matters twice over, and only one half of that is something
+Black-Scholes gives you for free. Feed a shorter ``t`` into
+``reprice_scenario`` and its gamma/vega naturally come out larger/smaller
+exactly as they should — that part needs no extra handling, it's just
+correct repricing. What Black-Scholes *can't* tell you is that a given
+spot move tends to move a near-expiry contract's IV by more percentage
+points than it moves a far-dated one — there's so little time value left
+to absorb a shock that the remaining premium has to flex harder, and
+weekly-options desks see this constantly. ``dte_reaction_multiplier``
+scales the ``VOL_REGIMES`` presets for that, pegged at 1.0x for a 7-day
+(standard NSE weekly) option — another clearly-labeled rule of thumb, not
+a fitted curve.
 """
 from __future__ import annotations
 
@@ -33,7 +46,8 @@ from app.core.black_scholes import OptionType, price as bs_price
 # (IV points gained per 1% the index falls, IV points gained per 1% the
 # index rises — the second is usually negative, i.e. vol cools on rallies).
 # One point = one percentage point of annualized IV (matches Greeks.vega's
-# "per 1 vol point" convention).
+# "per 1 vol point" convention). Pegged to a ~7-day (weekly) option; see
+# dte_reaction_multiplier for how this scales at other days-to-expiry.
 VOL_REGIMES: dict[str, tuple[float, float]] = {
     "Calm": (0.5, -0.3),
     "Normal": (1.5, -0.5),
@@ -42,16 +56,36 @@ VOL_REGIMES: dict[str, tuple[float, float]] = {
 
 DEFAULT_REGIME = "Normal"
 
+_DTE_REFERENCE_DAYS = 7.0
+_DTE_MULTIPLIER_MIN = 0.5
+_DTE_MULTIPLIER_MAX = 2.5
 
-def iv_change_for_move(move_pct: float, regime: str) -> float:
+
+def dte_reaction_multiplier(dte_days: float) -> float:
+    """How much harder (>1) or softer (<1) IV tends to react, point-for-
+    point, at ``dte_days`` to expiry versus the 7-day baseline
+    ``VOL_REGIMES`` is pegged to. Scales as ``sqrt(7 / dte)`` — the same
+    sqrt(time) shape Black-Scholes itself uses for vol-over-time — clamped
+    so it neither blows up as expiry nears nor flattens to nothing for
+    far-dated monthly contracts.
+    """
+    raw = math.sqrt(_DTE_REFERENCE_DAYS / max(dte_days, 0.5))
+    return min(max(raw, _DTE_MULTIPLIER_MIN), _DTE_MULTIPLIER_MAX)
+
+
+def iv_change_for_move(move_pct: float, regime: str, dte_days: float | None = None) -> float:
     """IV change in percentage points implied by an index move of ``move_pct``
-    percent under ``regime``'s rule-of-thumb sensitivities. Linear in move
-    size either side of zero.
+    percent under ``regime``'s rule-of-thumb sensitivities, linear in move
+    size either side of zero. Pass ``dte_days`` to additionally scale the
+    reaction by how close the option is to expiry (see
+    ``dte_reaction_multiplier``); omitted, the raw 7-day-baseline preset is
+    used unscaled.
     """
     down_sensitivity, up_sensitivity = VOL_REGIMES[regime]
-    if move_pct < 0:
-        return down_sensitivity * abs(move_pct)
-    return up_sensitivity * move_pct
+    base = down_sensitivity * abs(move_pct) if move_pct < 0 else up_sensitivity * move_pct
+    if dte_days is None:
+        return base
+    return base * dte_reaction_multiplier(dte_days)
 
 
 @dataclass(frozen=True)
