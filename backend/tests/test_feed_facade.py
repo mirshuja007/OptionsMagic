@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.black_scholes import OptionType
 from app.data import feed
 from app.data.kite_client import KiteAuthError, reset_kite_client
 
@@ -165,3 +166,55 @@ def test_minute_ohlc_series_mock_differs_across_session_dates(monkeypatch):
     bars_today = feed.minute_ohlc_series("NIFTY", session_date=today, minutes=5)
     bars_yesterday = feed.minute_ohlc_series("NIFTY", session_date=yesterday, minutes=5)
     assert [b[4] for b in bars_today] != [b[4] for b in bars_yesterday]
+
+
+def test_option_minute_ohlc_series_mock_provider_shape(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    bars = feed.option_minute_ohlc_series(
+        "NIFTY", strike=25000.0, option_type=OptionType.CALL, t=7 / 365, iv=0.14, minutes=15,
+    )
+    assert len(bars) == 15
+    for _, o, h, l, c, v in bars:
+        assert l <= o <= h
+        assert l <= c <= h
+        assert o >= 0 and c >= 0
+        assert v >= 0
+
+
+def test_option_minute_ohlc_series_mock_put_premium_moves_opposite_underlying(monkeypatch):
+    """A put's premium high must come from the underlying's low bar (and
+    vice versa) — if the repricing picked max/min of only open/close (or
+    mixed up call/put sign), a put's modeled high/low could silently come
+    out inverted relative to the underlying's own range.
+    """
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    call_bars = feed.option_minute_ohlc_series(
+        "NIFTY", strike=24000.0, option_type=OptionType.CALL, t=7 / 365, iv=0.14, minutes=20,
+    )
+    put_bars = feed.option_minute_ohlc_series(
+        "NIFTY", strike=24000.0, option_type=OptionType.PUT, t=7 / 365, iv=0.14, minutes=20,
+    )
+    # Deep ITM calls / deep OTM puts at a low strike: call premiums should
+    # dwarf put premiums here, confirming the right option_type drove each.
+    assert sum(c[4] for c in call_bars) > sum(p[4] for p in put_bars)
+
+
+def test_option_minute_ohlc_series_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.option_minute_ohlc_series("NIFTY", strike=25000.0, option_type=OptionType.CALL)
+    reset_kite_client()
+
+
+def test_option_minute_ohlc_series_mock_differs_across_strikes(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    near = feed.option_minute_ohlc_series(
+        "NIFTY", strike=24000.0, option_type=OptionType.CALL, t=7 / 365, iv=0.14, minutes=10,
+    )
+    far = feed.option_minute_ohlc_series(
+        "NIFTY", strike=26000.0, option_type=OptionType.CALL, t=7 / 365, iv=0.14, minutes=10,
+    )
+    assert [b[4] for b in near] != [b[4] for b in far]

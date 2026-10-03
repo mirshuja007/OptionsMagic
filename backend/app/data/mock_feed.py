@@ -27,6 +27,7 @@ __all__ = [
     "futures_snapshot",
     "generate_minute_series",
     "minute_ohlc_series",
+    "option_minute_ohlc_series",
     "generate_option_chain",
     "next_weekly_expiry",
 ]
@@ -326,6 +327,67 @@ def minute_ohlc_series(
         low = min(open_, close) * (1 - abs(rng.normal(0, intraday_vol)))
         bars.append((ts, round(open_, 2), round(high, 2), round(low, 2), round(close, 2), volume))
         prev_close = close
+    return bars
+
+
+def option_minute_ohlc_series(
+    symbol: str,
+    strike: float,
+    option_type: OptionType,
+    t: float,
+    iv: float,
+    q: float = 0.0,
+    expiry: date | None = None,
+    session_date: date | None = None,
+    minutes: int = 375,
+    seed: int | None = None,
+) -> list[tuple[datetime, float, float, float, float, int]]:
+    """Simulated minute-by-minute (open, high, low, close, volume) premium
+    path for one option leg — a per-strike candlestick chart, same idea as
+    ``minute_ohlc_series`` but for an option's premium instead of the
+    underlying's spot.
+
+    Built by repricing the day's already-simulated *underlying* OHLC path
+    (``minute_ohlc_series``) through Black-Scholes at each bar, holding
+    ``t``/``iv`` fixed at the caller's current snapshot rather than decaying
+    them minute-by-minute — both move by a negligible amount within a single
+    session, and this keeps the chart consistent with whatever "right now"
+    numbers the caller is already showing from that same chain snapshot.
+    Each bar's open/close reprice the underlying's open/close; high/low take
+    the max/min premium across all four of the underlying bar's own
+    open/high/low/close, which handles calls and puts correctly without
+    separate sign-case logic (a put's premium *high* corresponds to the
+    underlying's *low*, not its high).
+
+    ``expiry`` only seeds the mock premium path's own randomness (so
+    switching expiry shows a visibly different, not just rescaled, chart) —
+    it plays no role in the Black-Scholes repricing itself, which uses the
+    caller-supplied ``t``.
+    """
+    instrument = get_instrument(symbol)
+    session_date = session_date or date.today()
+    expiry = expiry or _default_expiry(instrument, session_date)
+    underlying_bars = minute_ohlc_series(symbol, session_date, minutes, seed)
+
+    step = instrument.strike_step
+    atm_strike = round(instrument.base_spot / step) * step
+    strike_offset = round((strike - atm_strike) / step)
+    distance_decay = math.exp(-0.15 * strike_offset**2)
+
+    seed_key = f"{symbol}-{strike}-{option_type.value}-{expiry.isoformat()}-optionvol-{session_date.isoformat()}"
+    rng = np.random.default_rng(_seed_for(seed_key, seed))
+    volumes = _intraday_volume_curve(rng, len(underlying_bars), base=max(int(150 * distance_decay), 5))
+
+    bars = []
+    for (ts, u_open, u_high, u_low, u_close, _u_vol), volume in zip(underlying_bars, volumes):
+        o = bs_price(u_open, strike, t, RISK_FREE_RATE, iv, option_type, q)
+        c = bs_price(u_close, strike, t, RISK_FREE_RATE, iv, option_type, q)
+        extremes = [
+            o, c,
+            bs_price(u_high, strike, t, RISK_FREE_RATE, iv, option_type, q),
+            bs_price(u_low, strike, t, RISK_FREE_RATE, iv, option_type, q),
+        ]
+        bars.append((ts, round(o, 2), round(max(extremes), 2), round(min(extremes), 2), round(c, 2), volume))
     return bars
 
 

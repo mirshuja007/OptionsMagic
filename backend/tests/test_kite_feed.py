@@ -778,3 +778,44 @@ def test_minute_ohlc_series_defaults_volume_to_zero_when_absent(monkeypatch):
 
     bars = kite_feed.minute_ohlc_series("NIFTY", session_date=session_date, minutes=1)
     assert bars[0][5] == 0
+
+
+def test_option_minute_ohlc_series_end_to_end(monkeypatch):
+    session_date = date(2026, 8, 17)
+    expiry = date(2026, 8, 20)
+    nfo_rows = [
+        {**_instrument_row(25000.0, "CE", expiry, "NIFTY26820_25000CE"), "instrument_token": 777},
+        {**_instrument_row(25000.0, "PE", expiry, "NIFTY26820_25000PE"), "instrument_token": 778},
+    ]
+    candles = [
+        {
+            "date": datetime.combine(session_date, datetime.min.time()) + timedelta(hours=9, minutes=15 + i),
+            "open": 100.0 + i, "high": 105.0 + i, "low": 95.0 + i, "close": 102.0 + i, "volume": 500 + i,
+        }
+        for i in range(5)
+    ]
+    fake = FakeKite(nfo_rows=nfo_rows, spot_ltp=0.0, quote_map={}, historical_candles=candles)
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    bars = kite_feed.option_minute_ohlc_series(
+        "NIFTY", strike=25000.0, option_type=OptionType.CALL, expiry=expiry, session_date=session_date, minutes=5,
+    )
+
+    assert len(bars) == 5
+    ts, o, h, l, c, v = bars[0]
+    assert (o, h, l, c, v) == (100.0, 105.0, 95.0, 102.0, 500)
+    assert fake.last_historical_call["instrument_token"] == 777
+
+
+def test_option_minute_ohlc_series_raises_for_unlisted_strike(monkeypatch):
+    expiry = date(2026, 8, 20)
+    nfo_rows = [{**_instrument_row(25000.0, "CE", expiry, "NIFTY26820_25000CE"), "instrument_token": 777}]
+    fake = FakeKite(nfo_rows=nfo_rows, spot_ltp=0.0, quote_map={}, historical_candles=[])
+    monkeypatch.setattr(kite_feed, "get_kite_client", lambda: fake)
+    kite_feed.clear_instrument_cache()
+
+    with pytest.raises(KiteFeedError):
+        kite_feed.option_minute_ohlc_series(
+            "NIFTY", strike=25000.0, option_type=OptionType.PUT, expiry=expiry, session_date=date(2026, 8, 17),
+        )

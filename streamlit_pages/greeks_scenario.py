@@ -9,9 +9,11 @@ further move could get), so it's not wrapped in an auto-refresh fragment.
 """
 from __future__ import annotations
 
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
-from streamlit_pages.common import fmt, fmt_currency, safe_call
+from streamlit_pages.common import GREEN, RED, dark_layout, fmt, fmt_currency, safe_call
 
 
 def render() -> None:
@@ -90,6 +92,9 @@ def render() -> None:
         "gap between \"model premium\" and \"live quote\" is normal bid/ask noise — the calculator below "
         "uses the model premium so a 0% move always shows exactly zero change."
     )
+
+    st.divider()
+    _premium_chart(symbol, strike, side_label, option_type, chain, leg, q)
 
     st.divider()
     st.markdown("**Build your scenario**")
@@ -173,3 +178,52 @@ def render() -> None:
                 "Seller P&L": fmt_currency(seller),
             })
         st.table(rows)
+
+
+def _premium_chart(symbol: str, strike: float, side_label: str, option_type, chain, leg, q: float) -> None:
+    from app.data.feed import get_active_provider, option_minute_ohlc_series
+
+    st.markdown("**Today's premium chart**")
+    bars, err = safe_call(
+        option_minute_ohlc_series,
+        symbol, strike, option_type,
+        t=chain.time_to_expiry_years, iv=leg.iv, q=q, expiry=chain.expiry,
+    )
+    if err or not bars:
+        st.info(err or "No intraday chart data yet.")
+        return
+
+    times = [b[0] for b in bars]
+    opens = [b[1] for b in bars]
+    highs = [b[2] for b in bars]
+    lows = [b[3] for b in bars]
+    closes = [b[4] for b in bars]
+    volumes = [b[5] for b in bars]
+    vol_colors = [GREEN if c >= o else RED for o, c in zip(opens, closes)]
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, row_heights=[0.75, 0.25], vertical_spacing=0.03,
+    )
+    fig.add_trace(
+        go.Candlestick(
+            x=times, open=opens, high=highs, low=lows, close=closes,
+            increasing_line_color=GREEN, decreasing_line_color=RED, name=f"{strike} {side_label}",
+        ),
+        row=1, col=1,
+    )
+    fig.add_trace(go.Bar(x=times, y=volumes, marker_color=vol_colors, name="Volume"), row=2, col=1)
+    dark_layout(fig, height=420, showlegend=False)
+    fig.update_layout(xaxis_rangeslider_visible=False)
+    fig.update_yaxes(title_text="Premium", row=1, col=1)
+    fig.update_yaxes(title_text="Volume", row=2, col=1)
+    st.plotly_chart(fig, use_container_width=True, key=f"greeks_premium_chart_{symbol}_{strike}_{side_label}")
+
+    live = get_active_provider() == "kite"
+    if live:
+        st.caption(f"{symbol} {strike} {side_label} — real minute candles for today, via Kite's Historical Data API.")
+    else:
+        st.caption(
+            f"{symbol} {strike} {side_label} — simulated: the underlying's simulated minute path, repriced "
+            "through Black-Scholes at this option's current IV/days-to-expiry. Not real tick-by-tick option "
+            "data — switch to live (Kite) mode for that."
+        )

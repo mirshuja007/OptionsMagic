@@ -367,6 +367,32 @@ Black-Scholes technique `app.margin.span` already uses for margin scenario
 scanning, rather than a linear Taylor approximation, so the displayed
 spot/vol split sums exactly to the total premium change.
 
+Days-to-expiry affects that premium reaction twice over, and the page
+handles both. Feeding the real time-to-expiry into every reprice already
+gets Black-Scholes's own gamma/vega/theta scaling right for free. What it
+can't do on its own is capture that a given spot move tends to swing a
+near-expiry contract's *IV* by more percentage points than it swings a
+far-dated one's — too little time value left to absorb a shock. The
+volatility-regime presets are additionally scaled by
+`dte_reaction_multiplier` (`sqrt(7 / days-to-expiry)`, pegged at 1.0x for a
+7-day/weekly option), with the scaled numbers shown directly in the UI
+rather than left implicit.
+
+Each selected strike/side also gets its own intraday candlestick + volume
+chart (`app.data.{kite_feed,mock_feed,feed}.option_minute_ohlc_series`) —
+the same per-contract view a broker charting tool like TradingView gives a
+single option, but reachable for any strike the Strike/Side selectors
+choose, not just whichever one you happen to search for. In live (Kite)
+mode these are real minute candles for that exact contract via the
+Historical Data API. In mock mode there's no stored per-strike tick
+history to draw on, so the chart reprices the underlying's own simulated
+minute-OHLC path through Black-Scholes at the option's current IV/DTE —
+open/close reprice the underlying's open/close, and high/low take the
+max/min premium across all four of the underlying bar's own OHLC values
+(so a put's premium high correctly comes from the underlying's low, not
+its high, with no separate sign-case logic needed) — clearly captioned as
+simulated rather than passed off as real tick data.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

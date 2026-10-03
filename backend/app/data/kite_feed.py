@@ -560,6 +560,51 @@ def futures_minute_series(
     )
 
 
+def option_minute_ohlc_series(
+    symbol: str,
+    strike: float,
+    option_type: OptionType,
+    t: float = 0.0,
+    iv: float = 0.0,
+    q: float = 0.0,
+    expiry: date | None = None,
+    session_date: date | None = None,
+    minutes: int = 375,
+) -> list[tuple[datetime, float, float, float, float, int]]:
+    """Real minute-by-minute (open, high, low, close, volume) for one
+    option contract's own premium, via Kite's Historical Data API — a
+    per-strike candlestick chart, same shape as ``minute_ohlc_series`` but
+    for the option leg's traded price rather than the underlying's.
+
+    ``t``/``iv``/``q`` exist only so this has the same call signature as
+    ``mock_feed.option_minute_ohlc_series`` (which needs them to reprice a
+    simulated path) — live historical candles are real traded prices that
+    already embed whatever IV applied at the time, so they're unused here.
+    """
+    instrument = get_instrument(symbol)
+    kite = get_kite_client()
+    session_date = session_date or date.today()
+
+    option_rows = _option_rows_for(instrument)
+    expiries = sorted({_as_date(r["expiry"]) for r in option_rows})
+    cutoff = _effective_expiry_cutoff_date(instrument, datetime.combine(session_date, instrument.session_start))
+    resolved_expiry = _pick_expiry(expiries, expiry, cutoff)
+
+    side = "CE" if option_type == OptionType.CALL else "PE"
+    match = next(
+        (
+            r for r in option_rows
+            if _as_date(r["expiry"]) == resolved_expiry and float(r["strike"]) == strike and r["instrument_type"] == side
+        ),
+        None,
+    )
+    if match is None:
+        raise KiteFeedError(f"No {side} contract found for {symbol} strike {strike} expiry {resolved_expiry}")
+
+    label = f"{symbol} {strike}{side} {resolved_expiry}"
+    return _fetch_minute_ohlc_candles(kite, match["instrument_token"], instrument, session_date, minutes, label)
+
+
 def daily_series(symbol: str, days: int = 500) -> list[tuple[date, float, float, float, float, int]]:
     """Real daily OHLC candles (date, open, high, low, close, volume) for
     the underlying spot instrument, via Kite's Historical Data API — the

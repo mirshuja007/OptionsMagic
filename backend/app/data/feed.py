@@ -112,3 +112,27 @@ def minute_ohlc_series(
     intrabar wick. Kite: real minute candles via the Historical Data API.
     """
     return _module().minute_ohlc_series(symbol, session_date=session_date, minutes=minutes)
+
+
+def option_minute_ohlc_series(
+    symbol: str,
+    strike: float,
+    option_type,
+    t: float = 0.0,
+    iv: float = 0.0,
+    q: float = 0.0,
+    expiry: date | None = None,
+    session_date: date | None = None,
+    minutes: int = 375,
+):
+    """Minute-by-minute (open, high, low, close, volume) for one option
+    leg's own premium — the Greeks Scenario Calculator's per-strike price
+    chart. Mock: the underlying's simulated OHLC path repriced through
+    Black-Scholes at the caller-supplied ``t``/``iv`` (needed for this
+    provider only — pass the chain snapshot's current values). Kite: the
+    option contract's real traded minute candles via the Historical Data
+    API (``t``/``iv``/``q`` unused there — real prices need no repricing).
+    """
+    return _module().option_minute_ohlc_series(
+        symbol, strike, option_type, t=t, iv=iv, q=q, expiry=expiry, session_date=session_date, minutes=minutes,
+    )
