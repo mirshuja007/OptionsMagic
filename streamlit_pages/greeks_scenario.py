@@ -143,13 +143,20 @@ def render() -> None:
     )
 
     st.divider()
-    st.markdown("**If you sold this**")
+    position = st.radio(
+        "Position", ["Sold (I'm the seller)", "Bought (I'm the buyer)"], horizontal=True,
+    )
+    is_seller = position.startswith("Sold")
+    pnl_fn = gs.seller_pnl if is_seller else gs.buyer_pnl
+    pnl_label = "Seller P&L" if is_seller else "Buyer P&L"
+
+    st.markdown(f"**If you {'sold' if is_seller else 'bought'} this**")
     pcol1, pcol2 = st.columns(2)
-    lots = pcol1.number_input("Lots sold", min_value=1, value=1, step=1)
+    lots = pcol1.number_input("Lots sold" if is_seller else "Lots bought", min_value=1, value=1, step=1)
     tranches = pcol2.number_input(
         "...but split across this many legs/tranches instead", min_value=1, value=3, step=1,
     )
-    pnl_full = gs.seller_pnl(base.base_price, result.new_price, instrument.lot_size, lots)
+    pnl_full = pnl_fn(base.base_price, result.new_price, instrument.lot_size, lots)
     pnl_per_tranche = pnl_full / tranches
     if pnl_full < 0:
         st.error(
@@ -170,12 +177,12 @@ def render() -> None:
                 spot=chain.spot, strike=strike, t=chain.time_to_expiry_years, r=chain.risk_free_rate,
                 iv=leg.iv, option_type=option_type, move_pct=m, iv_change_points=iv_chg, q=q,
             )
-            seller = gs.seller_pnl(base.base_price, r.new_price, instrument.lot_size, lots)
+            pnl = pnl_fn(base.base_price, r.new_price, instrument.lot_size, lots)
             rows.append({
                 "Index move": f"{m:+.1f}%",
                 "New premium": fmt(r.new_price),
                 "Premium change": f"{r.price_change_pct:+.1f}%",
-                "Seller P&L": fmt_currency(seller),
+                pnl_label: fmt_currency(pnl),
             })
         st.table(rows)
 

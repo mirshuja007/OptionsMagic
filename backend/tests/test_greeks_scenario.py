@@ -117,3 +117,16 @@ def test_seller_pnl_profits_when_premium_falls():
 
 def test_seller_pnl_loses_when_premium_rises():
     assert gs.seller_pnl(entry_premium=100, new_premium=250, lot_size=75, lots=1) == pytest.approx(75 * -150)
+
+
+def test_buyer_pnl_profits_when_premium_rises():
+    assert gs.buyer_pnl(entry_premium=100, new_premium=250, lot_size=75, lots=1) == pytest.approx(75 * 150)
+
+
+def test_buyer_pnl_loses_when_premium_falls():
+    assert gs.buyer_pnl(entry_premium=100, new_premium=60, lot_size=75, lots=2) == pytest.approx(2 * 75 * -40)
+
+
+def test_buyer_pnl_is_the_exact_mirror_of_seller_pnl():
+    args = dict(entry_premium=123.45, new_premium=98.76, lot_size=75, lots=3)
+    assert gs.buyer_pnl(**args) == pytest.approx(-gs.seller_pnl(**args))

@@ -171,3 +171,13 @@ def seller_pnl(entry_premium: float, new_premium: float, lot_size: int, lots: in
     buyer's P&L.
     """
     return (entry_premium - new_premium) * lot_size * lots
+
+
+def buyer_pnl(entry_premium: float, new_premium: float, lot_size: int, lots: int) -> float:
+    """P&L for someone who *bought* ``lots`` lots at ``entry_premium``:
+    profits when the premium rises, loses when it falls — the exact mirror
+    of ``seller_pnl``, kept as its own named function (rather than a bare
+    sign flip at the call site) so the Greeks Scenario Calculator's position
+    toggle reads the same way for both sides.
+    """
+    return (new_premium - entry_premium) * lot_size * lots

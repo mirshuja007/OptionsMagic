@@ -367,6 +367,15 @@ Black-Scholes technique `app.margin.span` already uses for margin scenario
 scanning, rather than a linear Taylor approximation, so the displayed
 spot/vol split sums exactly to the total premium change.
 
+A Position toggle (Sold / Bought) switches the P&L framing throughout —
+everything up to that point (the chain snapshot, the chart, the scenario
+math) is the same regardless of which side you're on; only the sign and
+wording of the final P&L section and sweep-table column change
+(`app.analytics.greeks_scenario.seller_pnl` / `buyer_pnl`, exact mirrors of
+each other). Added after noticing every strategy this platform had built
+so far (Strangle Windows, Opening Volume Breakout) was selling-side only,
+while this calculator itself has no reason to assume a seller.
+
 Days-to-expiry affects that premium reaction twice over, and the page
 handles both. Feeding the real time-to-expiry into every reprice already
 gets Black-Scholes's own gamma/vega/theta scaling right for free. What it
