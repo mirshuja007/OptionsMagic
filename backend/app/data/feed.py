@@ -77,6 +77,14 @@ def futures_snapshot(symbol: str) -> dict:
     return _module().futures_snapshot(symbol)
 
 
+def india_vix(session_date: date | None = None) -> float:
+    """Current India VIX level — a volatility-regime gate some strategies
+    use, not tied to any option chain. Mock: a simulated, date-seeded
+    stand-in. Kite: the real live NSE:INDIA VIX quote.
+    """
+    return _module().india_vix(session_date=session_date)
+
+
 def futures_minute_series(
     symbol: str,
     session_date: date | None = None,

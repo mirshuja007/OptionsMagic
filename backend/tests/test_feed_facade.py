@@ -218,3 +218,29 @@ def test_option_minute_ohlc_series_mock_differs_across_strikes(monkeypatch):
         "NIFTY", strike=26000.0, option_type=OptionType.CALL, t=7 / 365, iv=0.14, minutes=10,
     )
     assert [b[4] for b in near] != [b[4] for b in far]
+
+
+def test_india_vix_mock_provider_is_a_plausible_positive_level(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    vix = feed.india_vix()
+    assert 5.0 < vix < 100.0
+
+
+def test_india_vix_mock_is_stable_within_a_day_but_varies_across_days(monkeypatch):
+    from datetime import date, timedelta
+
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "mock")
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    assert feed.india_vix(session_date=today) == feed.india_vix(session_date=today)
+    assert feed.india_vix(session_date=today) != feed.india_vix(session_date=yesterday)
+
+
+def test_india_vix_kite_provider_surfaces_auth_error(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "kite")
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    reset_kite_client()
+    with pytest.raises(KiteAuthError):
+        feed.india_vix()
+    reset_kite_client()

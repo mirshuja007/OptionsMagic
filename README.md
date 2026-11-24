@@ -426,6 +426,30 @@ gets fetched once as "today" and up to three more times as a "prior day"
 for the volume filter, and Kite's Historical Data API is both rate-limited
 and billed per call.
 
+**A third, user-designed strategy is in progress**: a VIX + opening-gap
+filtered put/call ratio structure on NIFTY weekly options
+(`app.analytics.vix_gap_ratio`), not from any webinar — confirmed
+interactively, rule by rule, the same way every other strategy in this
+app was. Entry gate: India VIX > 15 and the opening-candle gap is between
+0% and 0.5% in either direction. On a gap down: sell 3 lots OTM PE ~2 SD
+below spot, buy 1 lot OTM PE ~1 SD below spot (the hedge), sell 1 lot OTM
+CE ~1.5 SD above spot — a gap up is the exact mirror image. "1 SD" here is
+NIFTY's own *realized* volatility (standard deviation of daily log-returns
+over the last 30 closes), scaled by sqrt(trading days to expiry) — not
+implied vol, a deliberate and explicitly confirmed choice. The naked short
+(the lone leg opposite the gap) stops out when its own premium doubles;
+the covered group (the 3-short/1-long side on the gap's own side) stops as
+a whole when the *net* cost to close it doubles, the hedge's value netted
+out first; a 30%-of-total-premium profit target closes everything early;
+same-day only for now, flattened at end of day otherwise. India VIX itself
+wasn't wired into this platform at all before this — `app.data.feed`
+gained `india_vix()` (mock: a simulated, date-seeded stand-in; Kite: the
+real `NSE:INDIA VIX` quote). The rule engine and its tests are in place;
+backtest and live paper-trading wiring (reusing Backtest Lab's engine,
+generalized beyond Opening Volume Breakout) is the next step. Still
+explicitly undecided: what happens on a day outside the VIX/gap trigger
+band — not invented here, left for a future confirmed answer.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

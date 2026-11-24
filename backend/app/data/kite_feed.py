@@ -242,6 +242,17 @@ def _resolve_active_futures_contract(kite, instrument: Instrument, today: date) 
     return upcoming[0] if upcoming else candidates[-1]
 
 
+def india_vix(session_date: date | None = None) -> float:
+    """Real live India VIX level via Kite's quote API. ``session_date`` is
+    accepted only for interface parity with ``mock_feed.india_vix`` (which
+    needs it to seed a stable-per-day simulated value) — a live quote is
+    always "right now" regardless of what's passed.
+    """
+    kite = get_kite_client()
+    last_price, _prev_close = _quote_underlying(kite, "NSE:INDIA VIX")
+    return last_price
+
+
 def futures_snapshot(symbol: str) -> dict:
     """Live current-month index-futures reading for ``symbol`` (NIFTY,
     SENSEX, ...): last price, previous close, the day's move (points and

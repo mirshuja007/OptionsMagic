@@ -29,6 +29,7 @@ __all__ = [
     "minute_ohlc_series",
     "option_minute_ohlc_series",
     "generate_option_chain",
+    "india_vix",
     "next_weekly_expiry",
 ]
 
@@ -461,6 +462,20 @@ def daily_series(
         prev_close = close
 
     return bars
+
+
+def india_vix(session_date: date | None = None, seed: int | None = None) -> float:
+    """Simulated India VIX level, seeded per calendar day so it's stable
+    within a session but varies day to day — the same date-aware seeding
+    this module already uses elsewhere (see the regression this fixed for
+    ``minute_ohlc_series``). India VIX isn't an options chain or an
+    ``Instrument`` in this platform's registry, just a single index level
+    some strategies gate on — this is a standalone, otherwise-unconnected
+    stand-in value, not derived from any other simulated series here.
+    """
+    session_date = session_date or date.today()
+    rng = np.random.default_rng(_seed_for(f"india-vix-{session_date.isoformat()}", seed))
+    return round(max(13.5 + rng.normal(0, 3.5), 8.0), 2)
 
 
 def futures_snapshot(symbol: str) -> dict:
