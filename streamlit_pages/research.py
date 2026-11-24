@@ -93,6 +93,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
     grid = volatility_mod.iv_grid(chain)
     straddle_curve = straddle_mod.premium_decay_curve(chain)
     atm_straddle = straddle_mod.atm_straddle(chain)
+    multi_straddle = straddle_mod.multistrike_straddle(chain)
     sr = commentary_mod.support_resistance(chain)
     band = commentary_mod.expiry_band_probability(chain.spot, atm_iv_value, chain.time_to_expiry_years)
 
@@ -113,6 +114,8 @@ def _render(symbol: str, expiry, live: bool) -> None:
     elif series_err:
         st.info(f"Intraday chart unavailable: {series_err}")
 
+    iv_hv = volatility_mod.iv_hv_spread(chain, [p for _, p, _ in series]) if series else None
+
     change = chain.spot - chain.prev_close
     change_pct = (change / chain.prev_close * 100) if chain.prev_close else 0.0
     sign = "+" if change >= 0 else ""
@@ -124,7 +127,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
     c4.metric("PCR (OI)", fmt(pcr_result.pcr_oi))
     c5.metric("ATM IV", f"{atm_iv_value * 100:.1f}%")
 
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
     if oi_change_available:
         d1.metric("Smart OI Bias", smart_oi["bias"], f"score {smart_oi['score']:.2f}")
     else:
@@ -136,6 +139,13 @@ def _render(symbol: str, expiry, live: bool) -> None:
         d4.metric("VWAP", fmt(vwap_value), "spot at VWAP" if abs(diff) < 0.01 else f"spot {'above' if diff > 0 else 'below'}")
     else:
         d4.metric("VWAP", "—")
+    if iv_hv is not None:
+        d5.metric(
+            "IV vs HV", iv_hv["regime"].capitalize(),
+            f"{iv_hv['atm_iv'] * 100:.1f}% vs {iv_hv['historical_vol'] * 100:.1f}%",
+        )
+    else:
+        d5.metric("IV vs HV", "n/a", "no intraday data yet")
 
     # --- Expiry Outlook commentary --------------------------------------
     st.subheader("Expiry Outlook")
@@ -192,7 +202,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
     dark_layout(oi_fig, barmode="group", height=340)
     st.plotly_chart(oi_fig, use_container_width=True)
 
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     with col_a:
         iv_fig = go.Figure()
         iv_fig.add_trace(go.Scatter(x=[g.strike for g in grid], y=[g.call_iv * 100 for g in grid], name="Call IV", line=dict(color=GREEN, width=2)))
@@ -211,6 +221,16 @@ def _render(symbol: str, expiry, live: bool) -> None:
         )
         dark_layout(decay_fig, title=f"ATM Straddle Premium Decay ({atm_straddle.strike:.0f})", height=320, xaxis_title="Today -> Expiry")
         st.plotly_chart(decay_fig, use_container_width=True)
+    with col_c:
+        multi_fig = go.Figure()
+        multi_fig.add_trace(
+            go.Bar(
+                x=[p.strike for p in multi_straddle], y=[p.combined_premium for p in multi_straddle],
+                marker_color=AMBER, name="Combined Premium",
+            )
+        )
+        dark_layout(multi_fig, title="Multi-Strike Straddle (combined premium)", height=320)
+        st.plotly_chart(multi_fig, use_container_width=True)
 
     # --- Option chain table -----------------------------------------------
     st.subheader("Option Chain")
