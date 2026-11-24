@@ -426,29 +426,54 @@ gets fetched once as "today" and up to three more times as a "prior day"
 for the volume filter, and Kite's Historical Data API is both rate-limited
 and billed per call.
 
-**A third, user-designed strategy is in progress**: a VIX + opening-gap
-filtered put/call ratio structure on NIFTY weekly options
-(`app.analytics.vix_gap_ratio`), not from any webinar — confirmed
-interactively, rule by rule, the same way every other strategy in this
-app was. Entry gate: India VIX > 15 and the opening-candle gap is between
-0% and 0.5% in either direction. On a gap down: sell 3 lots OTM PE ~2 SD
-below spot, buy 1 lot OTM PE ~1 SD below spot (the hedge), sell 1 lot OTM
-CE ~1.5 SD above spot — a gap up is the exact mirror image. "1 SD" here is
-NIFTY's own *realized* volatility (standard deviation of daily log-returns
-over the last 30 closes), scaled by sqrt(trading days to expiry) — not
-implied vol, a deliberate and explicitly confirmed choice. The naked short
-(the lone leg opposite the gap) stops out when its own premium doubles;
-the covered group (the 3-short/1-long side on the gap's own side) stops as
-a whole when the *net* cost to close it doubles, the hedge's value netted
-out first; a 30%-of-total-premium profit target closes everything early;
-same-day only for now, flattened at end of day otherwise. India VIX itself
-wasn't wired into this platform at all before this — `app.data.feed`
-gained `india_vix()` (mock: a simulated, date-seeded stand-in; Kite: the
-real `NSE:INDIA VIX` quote). The rule engine and its tests are in place;
-backtest and live paper-trading wiring (reusing Backtest Lab's engine,
-generalized beyond Opening Volume Breakout) is the next step. Still
-explicitly undecided: what happens on a day outside the VIX/gap trigger
-band — not invented here, left for a future confirmed answer.
+**A third, user-designed strategy**: a VIX + opening-gap filtered put/call
+ratio structure on NIFTY weekly options (`app.analytics.vix_gap_ratio`),
+not from any webinar — confirmed interactively, rule by rule, the same way
+every other strategy in this app was. Entry gate: India VIX > 15 and the
+opening-candle gap is between 0% and 0.5% in either direction. On a gap
+down: sell 3 lots OTM PE ~2 SD below spot, buy 1 lot OTM PE ~1 SD below
+spot (the hedge), sell 1 lot OTM CE ~1.5 SD above spot — a gap up is the
+exact mirror image. "1 SD" here is NIFTY's own *realized* volatility
+(standard deviation of daily log-returns over the last 30 closes), scaled
+by sqrt(trading days to expiry) — not implied vol, a deliberate and
+explicitly confirmed choice. The naked short (the lone leg opposite the
+gap) stops out when its own premium doubles; the covered group (the
+3-short/1-long side on the gap's own side) stops as a whole when the *net*
+cost to close it doubles, the hedge's value netted out first; a
+30%-of-total-premium profit target closes everything early; same-day
+only, flattened at end of day otherwise. India VIX itself wasn't wired
+into this platform at all before this — `app.data.feed` gained
+`india_vix()` (mock: a simulated, date-seeded stand-in; Kite: the real
+`NSE:INDIA VIX` quote).
+
+`app.backtest.vix_gap_ratio_backtest` is both the backtester *and* the
+live paper-tracker for this strategy — the same `simulate_day` function
+drives both, fed a complete historical day for a backtest or just *today's
+bars so far* (re-run on every refresh) for the live page, so the two can
+never quietly drift apart the way two independently-written
+implementations could. A real finding this backtest surfaced before any
+money was involved: with these confirmed SD distances (1 SD hedge vs 2 SD
+shorts, 3:1 lots), the "covered group" routinely prices as a net *debit*
+under a normal vol surface — the single closer-to-the-money hedge often
+costs more than 3x the farther-out shorts combined — which means (a) the
+"stop when the net credit doubles" rule has no credit to double and
+correctly never fires from that side, and (b) time decay can *hurt* this
+structure instead of helping it, since the net-debit long leg can decay
+faster than the short legs gain. Both are flagged, not hidden, in the
+module's own docstring and covered by tests. Because option premiums for
+an already-expired weekly contract generally aren't resolvable even via
+Kite (its instrument dump only lists currently-listed contracts), every
+premium here — entry and every intraday mark — is a Black-Scholes reprice
+of the underlying's real/simulated price path using this strategy's own
+realized-volatility figure as a stand-in IV, the same kind of
+no-historical-IV-surface limitation `app.backtest.replay` already
+documents for its own (different) backtest. Stops/target are checked at
+each minute bar's close only, not intrabar extremes. Still explicitly
+undecided: what happens on a day outside the VIX/gap trigger band — not
+invented here, left for a future confirmed answer. Reachable from
+**Backtest Lab** (as a second strategy option) and a dedicated **VIX + Gap
+Ratio (Live)** page — the latter asks for no manual confirmation clicks,
+per explicit request, unlike Strangle Windows/Opening Volume Breakout.
 
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
@@ -458,7 +483,8 @@ streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see
 streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
 streamlit_pages/opening_volume_breakout.py  Opening Volume Breakout (System 1 paper-tracker)
 streamlit_pages/greeks_scenario.py  Greeks Scenario Calculator (Greeks + volatility what-if sizing aid)
-streamlit_pages/backtest_lab.py  Backtest Lab (multi-day systematic backtester, Opening Volume Breakout first)
+streamlit_pages/backtest_lab.py  Backtest Lab (multi-day systematic backtester: Opening Volume Breakout, VIX+Gap Ratio)
+streamlit_pages/vix_gap_ratio_live.py  VIX + Gap Ratio (Live) — automated paper-tracker, no manual confirmation
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt
