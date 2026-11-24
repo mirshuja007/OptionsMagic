@@ -79,6 +79,7 @@ def _render(symbol: str, expiry, live: bool) -> None:
     from app.analytics import max_pain as max_pain_mod
     from app.analytics import oi as oi_mod
     from app.analytics import pcr as pcr_mod
+    from app.analytics import pe_ce as pe_ce_mod
     from app.analytics import straddle as straddle_mod
     from app.analytics import volatility as volatility_mod
     from app.analytics import vwap as vwap_mod
@@ -90,6 +91,8 @@ def _render(symbol: str, expiry, live: bool) -> None:
     gex = oi_mod.gamma_exposure(chain)
     atm_iv_value = volatility_mod.atm_iv(chain)
     skew = volatility_mod.volatility_skew(chain)
+    pe_ce = pe_ce_mod.pe_ce_difference(chain)
+    vega_by_strike = volatility_mod.vega_grid(chain)
     grid = volatility_mod.iv_grid(chain)
     straddle_curve = straddle_mod.premium_decay_curve(chain)
     atm_straddle = straddle_mod.atm_straddle(chain)
@@ -231,6 +234,25 @@ def _render(symbol: str, expiry, live: bool) -> None:
         )
         dark_layout(multi_fig, title="Multi-Strike Straddle (combined premium)", height=320)
         st.plotly_chart(multi_fig, use_container_width=True)
+
+    col_d, col_e = st.columns(2)
+    with col_d:
+        pe_ce_fig = go.Figure()
+        pe_ce_fig.add_trace(
+            go.Bar(
+                x=[p.strike for p in pe_ce], y=[p.difference for p in pe_ce],
+                marker_color=[GREEN if p.difference >= 0 else RED for p in pe_ce], name="PE - CE",
+            )
+        )
+        dark_layout(pe_ce_fig, title="PE-CE Difference (put premium − call premium)", height=320)
+        st.plotly_chart(pe_ce_fig, use_container_width=True)
+    with col_e:
+        vega_fig = go.Figure()
+        vega_fig.add_trace(go.Scatter(x=[v.strike for v in vega_by_strike], y=[v.call_vega for v in vega_by_strike], name="Call Vega", line=dict(color=GREEN, width=2)))
+        vega_fig.add_trace(go.Scatter(x=[v.strike for v in vega_by_strike], y=[v.put_vega for v in vega_by_strike], name="Put Vega", line=dict(color=RED, width=2)))
+        vega_fig.add_trace(go.Scatter(x=[v.strike for v in vega_by_strike], y=[v.net_vega for v in vega_by_strike], name="Net Vega (CE+PE)", line=dict(color=AMBER, width=2, dash="dot")))
+        dark_layout(vega_fig, title="Vega Analysis (₹ per 1 IV point)", height=320)
+        st.plotly_chart(vega_fig, use_container_width=True)
 
     # --- Option chain table -----------------------------------------------
     st.subheader("Option Chain")

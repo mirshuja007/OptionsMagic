@@ -1,8 +1,9 @@
 from app.analytics.max_pain import compute_max_pain
 from app.analytics.oi import gamma_exposure, multistrike_oi, smart_oi_score
 from app.analytics.pcr import compute_pcr
+from app.analytics.pe_ce import pe_ce_difference
 from app.analytics.straddle import atm_straddle, multistrike_straddle, premium_decay_curve
-from app.analytics.volatility import atm_iv, iv_grid, iv_hv_spread, realized_volatility, volatility_skew
+from app.analytics.volatility import atm_iv, iv_grid, iv_hv_spread, realized_volatility, vega_grid, volatility_skew
 from app.data.mock_feed import generate_option_chain, generate_minute_series
 
 
@@ -108,3 +109,41 @@ def test_premium_decay_curve_decreases_toward_expiry():
     assert curve[-1]["time_to_expiry_years"] == 0.0
     # combined premium should trend down as time value bleeds out (allow noise-free monotonic check on the mean)
     assert curve[-1]["combined_premium"] <= curve[0]["combined_premium"]
+
+
+def test_pe_ce_difference_matches_row_count_and_sorted_by_strike():
+    chain = generate_option_chain("NIFTY", seed=21)
+    points = pe_ce_difference(chain)
+    assert len(points) == len(chain.rows)
+    strikes = [p.strike for p in points]
+    assert strikes == sorted(strikes)
+
+
+def test_pe_ce_difference_equals_put_minus_call():
+    chain = generate_option_chain("NIFTY", seed=21)
+    points = pe_ce_difference(chain)
+    for p in points:
+        assert p.difference == round(p.put_premium - p.call_premium, 2)
+
+
+def test_vega_grid_matches_row_count_and_sorted_by_strike():
+    chain = generate_option_chain("NIFTY", seed=22)
+    grid = vega_grid(chain)
+    assert len(grid) == len(chain.rows)
+    strikes = [g.strike for g in grid]
+    assert strikes == sorted(strikes)
+
+
+def test_vega_grid_net_vega_equals_call_plus_put():
+    chain = generate_option_chain("NIFTY", seed=22)
+    grid = vega_grid(chain)
+    for g in grid:
+        assert g.net_vega == round(g.call_vega + g.put_vega, 4)
+
+
+def test_vega_grid_peaks_near_the_money():
+    chain = generate_option_chain("NIFTY", seed=22)
+    grid = vega_grid(chain)
+    atm_point = min(grid, key=lambda g: abs(g.strike - chain.spot))
+    farthest_point = max(grid, key=lambda g: abs(g.strike - chain.spot))
+    assert atm_point.net_vega > farthest_point.net_vega

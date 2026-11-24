@@ -18,6 +18,31 @@ def iv_grid(chain: OptionChain) -> list[IvGridPoint]:
     return [IvGridPoint(strike=row.strike, call_iv=row.call.iv, put_iv=row.put.iv) for row in chain.rows]
 
 
+@dataclass(frozen=True)
+class VegaGridPoint:
+    strike: float
+    call_vega: float
+    put_vega: float
+    net_vega: float  # call_vega + put_vega: the straddle's combined IV sensitivity at this strike
+
+
+def vega_grid(chain: OptionChain) -> list[VegaGridPoint]:
+    """Per-strike vega (₹ premium change per 1-IV-point move — see
+    ``core.black_scholes.Greeks.vega``), both legs and their sum. Vega
+    peaks ATM and decays with distance from spot, same shape as gamma —
+    this is the "where does a vol spike hurt/help most" read, the
+    strike-wise counterpart to ``app.analytics.greeks_scenario``'s
+    single-leg what-if calculator.
+    """
+    return [
+        VegaGridPoint(
+            strike=row.strike, call_vega=row.call.greeks.vega, put_vega=row.put.greeks.vega,
+            net_vega=round(row.call.greeks.vega + row.put.greeks.vega, 4),
+        )
+        for row in sorted(chain.rows, key=lambda r: r.strike)
+    ]
+
+
 def atm_iv(chain: OptionChain) -> float:
     atm_row = min(chain.rows, key=lambda r: abs(r.strike - chain.spot))
     return round((atm_row.call.iv + atm_row.put.iv) / 2.0, 4)
