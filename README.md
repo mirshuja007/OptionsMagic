@@ -402,6 +402,30 @@ max/min premium across all four of the underlying bar's own OHLC values
 its high, with no separate sign-case logic needed) — clearly captioned as
 simulated rather than passed off as real tick data.
 
+A seventh page, **Backtest Lab**, is the first systematic (multi-day)
+backtester in the platform — every other page only ever evaluates "what
+does today look like"; this one replays a strategy's own entry/exit rules
+across many historical trading days and tallies win rate, total/average
+P&L, and max drawdown. Opening Volume Breakout is the first strategy
+wired in (`app.backtest.ovb_backtest`), built entirely from that system's
+already-confirmed rules — no new thresholds invented, only backtest-
+specific mechanics the live page never had to decide because it only
+ever looks at the live moment: a conservative same-bar stop/target
+tie-break (stop wins if a single minute bar touches both), entry filling
+exactly at the opening candle's trigger level (matching the live page's
+own documented convention), and a forced end-of-day close as a safety net
+if a trade is somehow still open past the 3:15pm flat-by rule. The date
+range is "the last N completed trading days before today" rather than a
+free-form start/end pair, since both `daily_series` and
+`minute_ohlc_series` are anchored to "now" looking backward (mock mode
+rescales its simulated walk to land on today's live spot; Kite mode
+fetches real history ending today) — an arbitrary historical start date
+has no natural meaning here without first fixing that reference point.
+Each symbol/day's minute bars are cached per backtest run, since a day
+gets fetched once as "today" and up to three more times as a "prior day"
+for the volume filter, and Kite's Historical Data API is both rate-limited
+and billed per call.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)
@@ -410,6 +434,7 @@ streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see
 streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
 streamlit_pages/opening_volume_breakout.py  Opening Volume Breakout (System 1 paper-tracker)
 streamlit_pages/greeks_scenario.py  Greeks Scenario Calculator (Greeks + volatility what-if sizing aid)
+streamlit_pages/backtest_lab.py  Backtest Lab (multi-day systematic backtester, Opening Volume Breakout first)
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

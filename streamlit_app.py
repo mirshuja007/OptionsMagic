@@ -59,7 +59,7 @@ page = st.sidebar.radio(
     "Navigate",
     [
         "Research Mode", "Strategy Command Mode", "Futures Monitor", "Strangle Windows",
-        "Opening Volume Breakout", "Greeks Scenario Calculator",
+        "Opening Volume Breakout", "Greeks Scenario Calculator", "Backtest Lab",
     ],
     label_visibility="collapsed",
 )
@@ -84,7 +84,11 @@ elif page == "Opening Volume Breakout":
     from streamlit_pages.opening_volume_breakout import render as render_ovb
 
     render_ovb()
-else:
+elif page == "Greeks Scenario Calculator":
     from streamlit_pages.greeks_scenario import render as render_greeks_scenario
 
     render_greeks_scenario()
+else:
+    from streamlit_pages.backtest_lab import render as render_backtest_lab
+
+    render_backtest_lab()
