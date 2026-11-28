@@ -475,6 +475,29 @@ invented here, left for a future confirmed answer. Reachable from
 Ratio (Live)** page — the latter asks for no manual confirmation clicks,
 per explicit request, unlike Strangle Windows/Opening Volume Breakout.
 
+**A general condition toolkit for building custom algo strategies** is
+under construction (`app.analytics.conditions`, `app.analytics.greek_bias`)
+— requested as a "masterclass" generalization rather than another
+one-off strategy: composable AND/OR/NOT predicates (gap direction/size,
+VIX level, ATM straddle-as-%-of-spot, an option's own premium % change
+from a chosen reference, raw Greek thresholds, IV-rich/cheap regime) that
+any future strategy can assemble, rather than each new idea getting its
+own hand-written entry-gate function. A `PremiumChangeCondition` serves as
+*either* an entry screener (reference = today's open or yesterday's close)
+*or* an exit rule on an open position (reference = your own entry price)
+— same condition type, different reference point, confirmed explicitly
+rather than building two separate things. `greek_bias` is a
+requested-but-not-specified piece of judgment, built as an explicit,
+labeled heuristic rather than invented silently: it combines the existing
+IV-rich/cheap read with a gamma-vs-theta risk ratio (how many days' worth
+of theta a given % move would cost via gamma convexity alone) into a
+plain-language sell-premium/buy-premium/neutral lean with stated reasons
+— there's no single settled industry threshold for this, so the cutoffs
+are clearly marked illustrative, not calibrated. This toolkit has no
+opinion on what to actually trade when conditions fire; backtest/live UI
+wiring, and what each strategy built from these blocks actually trades,
+is the next step.
+
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
 streamlit_pages/research.py   Research Mode (option chain, analytics, commentary)

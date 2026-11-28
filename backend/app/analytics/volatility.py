@@ -86,18 +86,27 @@ def iv_hv_spread(chain: OptionChain, minute_prices: list[float], neutral_band: f
     iv = atm_iv(chain)
     hv = realized_volatility(minute_prices)
     spread = iv - hv
-    if spread > neutral_band:
-        regime = "rich"
-    elif spread < -neutral_band:
-        regime = "cheap"
-    else:
-        regime = "neutral"
     return {
         "atm_iv": iv,
         "historical_vol": round(hv, 4),
         "spread": round(spread, 4),
-        "regime": regime,
+        "regime": classify_iv_regime(iv, hv, neutral_band),
     }
+
+
+def classify_iv_regime(iv: float, realized_vol: float, neutral_band: float = 0.02) -> str:
+    """The rich/cheap/neutral classification ``iv_hv_spread`` reports,
+    factored out so callers with a bare ``(iv, realized_vol)`` pair in
+    hand — e.g. ``app.analytics.conditions.IvRegimeCondition``, built from
+    a generic market snapshot rather than a live chain — don't need a
+    full ``OptionChain`` just to classify two numbers they already have.
+    """
+    spread = iv - realized_vol
+    if spread > neutral_band:
+        return "rich"
+    if spread < -neutral_band:
+        return "cheap"
+    return "neutral"
 
 
 def volatility_skew(chain: OptionChain, delta_target: float = 0.25) -> dict:
