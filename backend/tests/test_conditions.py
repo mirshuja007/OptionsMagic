@@ -1,6 +1,8 @@
 import pytest
 
 from app.analytics.conditions import (
+    AlwaysFalse,
+    AlwaysTrue,
     And,
     GapCondition,
     GreekCondition,
@@ -18,6 +20,11 @@ def _snap(**overrides) -> MarketSnapshot:
     base = dict(spot=100.0, prev_close=100.0)
     base.update(overrides)
     return MarketSnapshot(**base)
+
+
+def test_always_true_and_always_false():
+    assert AlwaysTrue().evaluate(_snap()) is True
+    assert AlwaysFalse().evaluate(_snap()) is False
 
 
 # --- GapCondition -----------------------------------------------------------

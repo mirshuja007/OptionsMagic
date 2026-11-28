@@ -60,6 +60,7 @@ page = st.sidebar.radio(
     [
         "Research Mode", "Strategy Command Mode", "Futures Monitor", "Strangle Windows",
         "Opening Volume Breakout", "Greeks Scenario Calculator", "Backtest Lab", "VIX + Gap Ratio (Live)",
+        "Custom Strategy (Live)",
     ],
     label_visibility="collapsed",
 )
@@ -92,7 +93,11 @@ elif page == "Backtest Lab":
     from streamlit_pages.backtest_lab import render as render_backtest_lab
 
     render_backtest_lab()
-else:
+elif page == "VIX + Gap Ratio (Live)":
     from streamlit_pages.vix_gap_ratio_live import render as render_vix_gap_ratio_live
 
     render_vix_gap_ratio_live()
+else:
+    from streamlit_pages.custom_strategy_live import render as render_custom_strategy_live
+
+    render_custom_strategy_live()

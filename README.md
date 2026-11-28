@@ -475,14 +475,14 @@ invented here, left for a future confirmed answer. Reachable from
 Ratio (Live)** page — the latter asks for no manual confirmation clicks,
 per explicit request, unlike Strangle Windows/Opening Volume Breakout.
 
-**A general condition toolkit for building custom algo strategies** is
-under construction (`app.analytics.conditions`, `app.analytics.greek_bias`)
-— requested as a "masterclass" generalization rather than another
-one-off strategy: composable AND/OR/NOT predicates (gap direction/size,
-VIX level, ATM straddle-as-%-of-spot, an option's own premium % change
-from a chosen reference, raw Greek thresholds, IV-rich/cheap regime) that
-any future strategy can assemble, rather than each new idea getting its
-own hand-written entry-gate function. A `PremiumChangeCondition` serves as
+**A general condition toolkit for building custom algo strategies**
+(`app.analytics.conditions`, `app.analytics.greek_bias`) — requested as a
+"masterclass" generalization rather than another one-off strategy:
+composable AND/OR/NOT predicates (gap direction/size, VIX level, ATM
+straddle-as-%-of-spot, an option's own premium % change from a chosen
+reference, raw Greek thresholds, IV-rich/cheap regime) that any future
+strategy can assemble, rather than each new idea getting its own
+hand-written entry-gate function. A `PremiumChangeCondition` serves as
 *either* an entry screener (reference = today's open or yesterday's close)
 *or* an exit rule on an open position (reference = your own entry price)
 — same condition type, different reference point, confirmed explicitly
@@ -493,10 +493,30 @@ IV-rich/cheap read with a gamma-vs-theta risk ratio (how many days' worth
 of theta a given % move would cost via gamma convexity alone) into a
 plain-language sell-premium/buy-premium/neutral lean with stated reasons
 — there's no single settled industry threshold for this, so the cutoffs
-are clearly marked illustrative, not calibrated. This toolkit has no
-opinion on what to actually trade when conditions fire; backtest/live UI
-wiring, and what each strategy built from these blocks actually trades,
-is the next step.
+are clearly marked illustrative, not calibrated.
+
+**The custom strategy engine** (`app.analytics.custom_strategy`,
+`app.backtest.custom_strategy_backtest`) is what actually trades on these
+conditions: pick one option leg (ATM / OTM-by-points / OTM-by-SD strike,
+call/put, buy/sell, lot count) to enter once an arbitrary entry condition
+tree fires, closed by an arbitrary exit condition tree or the 3:15pm
+flat-by cutoff, whichever comes first — confirmed as deliberately
+single-leg for this first version (per-condition "I'll specify each test
+myself" rather than a fixed multi-leg default); multi-leg custom combos
+are a real but not-yet-built extension. Same dual-mode design as the VIX
++ Gap Ratio engine: one `simulate_day` drives both backtest and live.
+The IV input differs by mode on purpose — backtest has no historical IV
+surface to replay, so it uses the traded instrument's static `base_iv` as
+a stand-in, deliberately distinct from the day's realized volatility so
+`IvRegimeCondition` is actually comparing two independent numbers; live
+mode uses the real option chain's solved IV at the selected strike
+instead, since that genuinely exists. Reachable from **Backtest Lab** (as
+a third strategy option, "Custom (Condition Builder)") and a dedicated
+**Custom Strategy (Live)** page, both built on a shared row-editor
+(`streamlit_pages/condition_builder.py`) — add a condition row, pick its
+type and parameters from a dropdown, combine multiple rows with a single
+AND/OR choice per entry/exit side (a flat list + one combinator, not a
+nested expression-tree editor, matching what was actually asked for).
 
 ```
 streamlit_app.py          entry point — page nav, secrets sync, provider badge
@@ -506,8 +526,10 @@ streamlit_pages/cas.py        Futures Monitor (live NIFTY/SENSEX futures — see
 streamlit_pages/strangle_system.py  Strangle Windows (2 Hour Trading Strategy paper-tracker)
 streamlit_pages/opening_volume_breakout.py  Opening Volume Breakout (System 1 paper-tracker)
 streamlit_pages/greeks_scenario.py  Greeks Scenario Calculator (Greeks + volatility what-if sizing aid)
-streamlit_pages/backtest_lab.py  Backtest Lab (multi-day systematic backtester: Opening Volume Breakout, VIX+Gap Ratio)
+streamlit_pages/backtest_lab.py  Backtest Lab (multi-day systematic backtester: OVB, VIX+Gap Ratio, Custom)
 streamlit_pages/vix_gap_ratio_live.py  VIX + Gap Ratio (Live) — automated paper-tracker, no manual confirmation
+streamlit_pages/custom_strategy_live.py  Custom Strategy (Live) — automated paper-tracker for the condition-built engine
+streamlit_pages/condition_builder.py  shared "add a condition row" widget, used by Backtest Lab's Custom strategy + its live page
 streamlit_pages/kite_login.py In-app "Login with Kite" panel (Research Mode) — see below
 streamlit_pages/common.py     sys.path setup, Secrets->env sync, formatting helpers
 requirements.txt (repo root)  what Streamlit Cloud installs — NOT backend/requirements.txt

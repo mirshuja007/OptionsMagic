@@ -108,6 +108,26 @@ class Not:
 
 
 @dataclass(frozen=True)
+class AlwaysTrue:
+    """Trivial condition, useful as a default entry screener (trade every
+    day, no entry filter at all) or as a placeholder while a UI is still
+    being configured.
+    """
+    def evaluate(self, snap: MarketSnapshot) -> bool:
+        return True
+
+
+@dataclass(frozen=True)
+class AlwaysFalse:
+    """Trivial condition, useful as a default exit: never fires, so a
+    position rides to whatever end-of-day/flat-by cutoff the engine
+    enforces instead of ever closing on a condition.
+    """
+    def evaluate(self, snap: MarketSnapshot) -> bool:
+        return False
+
+
+@dataclass(frozen=True)
 class GapCondition:
     """The underlying's opening move vs. the previous close. "flat" uses
     only ``max_pct`` as a symmetric band around zero; "up"/"down" require

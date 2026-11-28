@@ -3,15 +3,18 @@ trading days and tallies how it would have done — win rate, P&L,
 drawdown — rather than only ever evaluating "what does today look like"
 the way every other page in this app does.
 
-Two strategies are wired in: Opening Volume Breakout
-(``app.backtest.ovb_backtest``) and the VIX + opening-gap put/call ratio
-strategy (``app.backtest.vix_gap_ratio_backtest``) — see each module's
-docstring for its own backtest-specific assumptions (same-bar stop/target
-tie-breaks, entry fill conventions, how option premiums get repriced when
-no real historical quote is resolvable). This is a genuinely slow
-operation against live Kite data (one Historical Data API call per
-symbol per day, cached per run but not across runs) — hence the explicit
-"Run Backtest" button rather than recomputing on every widget change.
+Three strategies are wired in: Opening Volume Breakout
+(``app.backtest.ovb_backtest``), the VIX + opening-gap put/call ratio
+strategy (``app.backtest.vix_gap_ratio_backtest``), and a general,
+user-assembled Custom strategy (``app.backtest.custom_strategy_backtest``)
+built from the condition toolkit in ``app.analytics.conditions`` — see
+each module's docstring for its own backtest-specific assumptions
+(same-bar stop/target tie-breaks, entry fill conventions, how option
+premiums get repriced when no real historical quote is resolvable). This
+is a genuinely slow operation against live Kite data (one Historical
+Data API call per symbol per day, cached per run but not across runs) —
+hence the explicit "Run Backtest" button rather than recomputing on
+every widget change.
 """
 from __future__ import annotations
 
@@ -35,13 +38,20 @@ def render() -> None:
     )
 
     strategy = st.selectbox(
-        "Strategy", ["Opening Volume Breakout (System 1)", "VIX + Gap Put/Call Ratio (NIFTY weekly)"],
+        "Strategy",
+        [
+            "Opening Volume Breakout (System 1)",
+            "VIX + Gap Put/Call Ratio (NIFTY weekly)",
+            "Custom (Condition Builder)",
+        ],
     )
 
     if strategy.startswith("Opening Volume Breakout"):
         _render_ovb()
-    else:
+    elif strategy.startswith("VIX + Gap"):
         _render_vix_gap_ratio()
+    else:
+        _render_custom()
 
 
 def _render_ovb() -> None:
@@ -150,6 +160,116 @@ def _render_vix_gap_ratio() -> None:
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info("No trades fired in this window — the VIX/gap entry gate screened out every day.")
+
+
+def _render_custom() -> None:
+    from app.analytics import opening_volume_breakout as ovb
+    from app.analytics.conditions import AlwaysFalse, AlwaysTrue
+    from app.analytics.custom_strategy import LegAction, StrikeSelection
+    from app.core.black_scholes import OptionType
+    from app.strategy.legs import Side
+    from streamlit_pages.condition_builder import render_condition_set
+
+    st.caption(
+        "Assemble your own entry and exit rules from the condition toolkit (gap, VIX, ATM straddle %, "
+        "option premium change, greeks, IV regime) and a single option leg to trade when they fire — "
+        "see app.analytics.conditions and app.backtest.custom_strategy_backtest's module docstrings for "
+        "exactly how each condition is evaluated and what's deliberately single-leg/same-day about this."
+    )
+
+    symbol = st.selectbox("Symbol", ovb.WATCHLIST, key="custom_symbol")
+    lookback = st.number_input(
+        "Lookback (trading days)", min_value=5, max_value=250, value=30, step=5, key="custom_lookback",
+    )
+
+    st.markdown("### Action — what to trade when the entry condition fires")
+    a1, a2, a3, a4 = st.columns(4)
+    option_type = OptionType.CALL if a1.selectbox("Option", ["Call", "Put"], key="custom_opt") == "Call" else OptionType.PUT
+    side = Side.SHORT if a2.selectbox("Side", ["Sell", "Buy"], key="custom_side") == "Sell" else Side.LONG
+    strike_method_label = a3.selectbox("Strike", ["ATM", "OTM by points", "OTM by SD"], key="custom_strike_method")
+    lots = a4.number_input("Lots", min_value=1, max_value=50, value=1, step=1, key="custom_lots")
+
+    if strike_method_label == "ATM":
+        strike_selection = StrikeSelection("atm")
+    elif strike_method_label == "OTM by points":
+        points = st.number_input("Points OTM", min_value=0.0, value=100.0, step=10.0, key="custom_strike_points")
+        strike_selection = StrikeSelection("otm_points", points)
+    else:
+        sd = st.number_input("SD multiple OTM", min_value=0.0, value=1.0, step=0.1, key="custom_strike_sd")
+        strike_selection = StrikeSelection("otm_sd", sd)
+
+    leg_action = LegAction(option_type, side, strike_selection, lots=int(lots))
+
+    st.divider()
+    entry_condition = render_condition_set(
+        key_prefix="custom_entry",
+        title="Entry conditions",
+        help_text=(
+            "Checked once, right when the 9:15-9:20 opening candle closes. No rows = enter every day "
+            "(no screener). \"Option premium change\" here should reference today's open or yesterday's "
+            "close, not entry — there's no position yet to compare against at this point."
+        ),
+        premium_references=["day_open", "prev_close"],
+        default_if_empty=AlwaysTrue(),
+    )
+
+    st.divider()
+    exit_condition = render_condition_set(
+        key_prefix="custom_exit",
+        title="Exit conditions",
+        help_text=(
+            "Checked every minute after entry; whatever's still open gets flattened at 3:15pm regardless. "
+            "No rows = ride to that flat-by cutoff with no condition-based exit at all. \"Option premium "
+            "change\" here normally references entry (e.g. entry, >=, 100 = close once the premium has "
+            "doubled from your own fill)."
+        ),
+        premium_references=["entry", "day_open", "prev_close"],
+        default_if_empty=AlwaysFalse(),
+    )
+
+    st.divider()
+    if not st.button("Run Backtest", type="primary", key="custom_run"):
+        return
+
+    from app.backtest.custom_strategy_backtest import run_backtest
+
+    with st.spinner(f"Replaying the last {lookback} trading days for {symbol}..."):
+        result, err = None, None
+        try:
+            result = run_backtest(
+                symbol, leg_action, entry_condition, exit_condition, lookback_trading_days=lookback,
+            )
+        except Exception as exc:  # noqa: BLE001
+            err = str(exc)
+
+    if err:
+        st.error(f"Backtest failed: {err}")
+        return
+
+    st.divider()
+    st.markdown(f"**Results — {symbol}, last {lookback} trading days**")
+    _summary_metrics(result)
+    _skip_caption(result, lookback)
+
+    if result.trades:
+        _equity_chart(result)
+        st.markdown("**Trade log**")
+        rows = [
+            {
+                "Date": t.day.isoformat(),
+                "Leg": f"{'Sell' if t.side == Side.SHORT else 'Buy'} {t.option_type.value} {t.strike:.0f} x{t.lots}",
+                "Entry": f"{t.entry_time.strftime('%H:%M')} @ {t.entry_premium:.2f}",
+                "Exit": (
+                    f"{t.exit_time.strftime('%H:%M')} @ {t.current_premium:.2f}" if t.exit_time else "still open"
+                ),
+                "Reason": t.exit_reason.replace("_", " "),
+                "P&L": fmt_currency(t.pnl_rupees),
+            }
+            for t in result.trades
+        ]
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("No trades fired in this window — the entry condition screened out every day.")
 
 
 def _summary_metrics(result) -> None:
